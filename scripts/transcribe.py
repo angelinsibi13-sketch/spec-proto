@@ -118,15 +118,25 @@ def main() -> None:
         sys.exit(2)
     model_name = os.environ.get("WHISPER_MODEL", "small")
     vad = os.environ.get("WHISPER_VAD", "1") != "0"
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(
-        sys.argv[1],
-        language="ru",
-        vad_filter=vad,
-        beam_size=1,
-        word_timestamps=True,
-        condition_on_previous_text=False,
+    beam = int(os.environ.get("WHISPER_BEAM", "5"))
+    hotwords = os.environ.get(
+        "WHISPER_HOTWORDS",
+        "коммерческое предложение, КП, созвон, встреча, договор, оплата, счёт, перезвон, документы, подпись",
     )
+    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    options = {
+        "language": "ru",
+        "vad_filter": vad,
+        "beam_size": beam,
+        "word_timestamps": True,
+        "condition_on_previous_text": True,
+        "hotwords": hotwords,
+    }
+    try:
+        segments, _info = model.transcribe(sys.argv[1], **options)
+    except TypeError:
+        options.pop("hotwords", None)
+        segments, _info = model.transcribe(sys.argv[1], **options)
     samples, rate = load_wav(sys.argv[1])
     payload = []
     for item in utterances(segments):

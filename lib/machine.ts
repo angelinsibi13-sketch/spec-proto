@@ -1,7 +1,7 @@
 import { defaultRules } from "@/lib/catalog";
 import { addDays, iso } from "@/lib/dates";
 import { IN_CALL, IN_SCRIPT, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-script";
-import { dedupeKey, extract } from "@/lib/extract";
+import { borrowPhrases, dedupeKey, extract } from "@/lib/extract";
 import { buildSummary } from "@/lib/hints";
 import { packReminder } from "@/lib/reminders";
 import { labelSpeakers, type SpeechSegment } from "@/lib/speakers";
@@ -19,6 +19,8 @@ import type {
   Task,
   Vault,
 } from "@/lib/types";
+
+export const TRANSCRIPT_ENGINE = 2;
 
 function uid(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -132,34 +134,47 @@ function stripDerived(vault: Vault, callId: string): Vault {
 
 function speakInto(vault: Vault, call: Call, segments: SpeechSegment[], origin: Origin, now: Date): Vault {
   const labeled = labelSpeakers(segments, call.client);
-  let next = vault;
+  const spoken: { speaker: "agent" | "client"; name: string; text: string; start: number }[] = [];
   for (const piece of labeled) {
     for (const phrase of splitPhrases(piece.text)) {
-      const line = {
-        id: uid("line"),
-        speaker: piece.speaker,
-        name: piece.name,
-        text: phrase,
-        fromScript: false,
-        atMs: Math.round(piece.start * 1000),
-      };
-      next = {
-        ...next,
-        calls: next.calls.map((item) =>
-          item.id === call.id
-            ? {
-                ...item,
-                lines: [...item.lines, line],
-                counterpartyNotified:
-                  item.counterpartyNotified ||
-                  (piece.speaker === "client" && partyAgrees(phrase.toLowerCase())),
-              }
-            : item,
-        ),
-      };
-      const current = next.calls.find((item) => item.id === call.id) ?? call;
-      next = record(next, current, phrase, now, origin);
+      spoken.push({ speaker: piece.speaker, name: piece.name, text: phrase, start: piece.start });
     }
+  }
+  let next = vault;
+  for (const phrase of spoken) {
+    const line = {
+      id: uid("line"),
+      speaker: phrase.speaker,
+      name: phrase.name,
+      text: phrase.text,
+      fromScript: false,
+      atMs: Math.round(phrase.start * 1000),
+    };
+    next = {
+      ...next,
+      calls: next.calls.map((item) =>
+        item.id === call.id
+          ? {
+              ...item,
+              lines: [...item.lines, line],
+              counterpartyNotified:
+                item.counterpartyNotified ||
+                (phrase.speaker === "client" && partyAgrees(phrase.text.toLowerCase())),
+            }
+          : item,
+      ),
+    };
+    const current = next.calls.find((item) => item.id === call.id) ?? call;
+    next = record(next, current, phrase.text, now, origin);
+  }
+  const current = next.calls.find((item) => item.id === call.id) ?? call;
+  for (const phrase of borrowPhrases(
+    spoken.map((item) => item.text),
+    next.rules,
+    now,
+    call.client,
+  )) {
+    next = record(next, current, phrase, now, origin);
   }
   return next;
 }
@@ -247,6 +262,7 @@ export function applyRecordingTranscript(
     audio: input.audio,
     audioSha: input.audioSha,
     sourceFile: input.sourceFile,
+    transcriptEngine: TRANSCRIPT_ENGINE,
   };
   const seeded: Vault = existing
     ? { ...cleared, calls: cleared.calls.map((item) => (item.id === callId ? call : item)) }
@@ -273,7 +289,12 @@ export function markRecording(
     ) ??
     (input.known ? vault.calls.find((call) => call.origin !== "demo" && call.client === input.client) : undefined);
   if (!existing) return { vault, changed: false };
-  if (existing.audioSha === input.audioSha && existing.transcriptNote === input.note && existing.sourceFile === input.sourceFile) {
+  if (
+    existing.audioSha === input.audioSha &&
+    existing.transcriptNote === input.note &&
+    existing.sourceFile === input.sourceFile &&
+    existing.transcriptEngine === TRANSCRIPT_ENGINE
+  ) {
     return { vault, changed: false };
   }
   return {
@@ -287,6 +308,7 @@ export function markRecording(
               audioSha: input.audioSha,
               sourceFile: input.sourceFile,
               transcriptNote: input.note,
+              transcriptEngine: TRANSCRIPT_ENGINE,
             }
           : call,
       ),

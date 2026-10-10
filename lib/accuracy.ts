@@ -1,6 +1,6 @@
 import { defaultRules } from "@/lib/catalog";
 import { DEMO_SCRIPT } from "@/lib/demo-script";
-import { dedupeKey, extract } from "@/lib/extract";
+import { borrowPhrases, dedupeKey, extract } from "@/lib/extract";
 import type { AgreementType, Hit, Rule } from "@/lib/types";
 
 export const ACCURACY_NOW = new Date(2026, 9, 9, 10, 0, 0);
@@ -45,6 +45,8 @@ export const ACCURACY_CASES: AccuracyCase[] = [
   { phrase: "Счёт на 186 тысяч оплатим до 20 октября", type: "payment", due: "2026-10-20", amount: 186000 },
   { phrase: "Счёт на 6 200 рублей оплатим до 20 октября", type: "payment", due: "2026-10-20", amount: 6200 },
   { phrase: "КП на 45 000 рублей до пятницы", type: "kp", due: "2026-10-09", amount: 45000 },
+  { phrase: "Пришлю ка пэ до пятницы", type: "kp", due: "2026-10-09" },
+  { phrase: "Давайте со звон в понедельник в 11", type: "meeting", due: "2026-10-12", time: "11:00" },
 ];
 
 export const NEGATIVE_PHRASES = [
@@ -79,6 +81,15 @@ export function scoreAccuracy(rules: Rule[] = defaultRules(), now = ACCURACY_NOW
     total: rows.length,
     ratio: rows.length === 0 ? 0 : passed / rows.length,
   };
+}
+
+export function contextHits(rules: Rule[] = defaultRules(), now = ACCURACY_NOW) {
+  const split = borrowPhrases(["Пришлю ка пэ", "до пятницы"], rules, now, "Клиент");
+  const across = borrowPhrases(["Пришлю КП", "Хорошо", "до пятницы"], rules, now, "Клиент");
+  const meeting = borrowPhrases(["Давайте созвон", "в понедельник в 11"], rules, now, "Клиент");
+  const separate = borrowPhrases(["Пришлю КП до пятницы", "Созвон в понедельник"], rules, now, "Клиент");
+  const consent = borrowPhrases(["Зафиксировать договоренности", "Да", "до пятницы"], rules, now, "Клиент");
+  return { split, across, meeting, separate, consent };
 }
 
 export function rehearsalHits(rules: Rule[] = defaultRules(), now = ACCURACY_NOW) {
