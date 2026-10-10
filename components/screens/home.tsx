@@ -5,7 +5,8 @@ import { PageTitle, PriorityPill, Screen, Surface, TypePill } from "@/components
 import { RecordingCard } from "@/components/screens/recording";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clockOf, formatWhen } from "@/lib/dates";
+import { formatWhen } from "@/lib/dates";
+import { reminderItems, reminderLabel } from "@/lib/reminders";
 import { knownPhone, recordingFor } from "@/lib/demo-script";
 import { useFix } from "@/lib/store";
 import type { Call, Task } from "@/lib/types";
@@ -70,15 +71,17 @@ export function HomeScreen() {
   });
   const reminders = vault.events
     .flatMap((event) => {
-      const at = clockOf(vault.reminders?.[event.id]);
-      if (!at) return [];
       const task = vault.tasks.find((item) => item.agreementId === event.agreementId && item.title === event.title);
-      return [{ event, at, priority: task?.priority ?? "medium" }];
+      return reminderItems(vault.reminders?.[event.id], event).map((item) => ({
+        event,
+        item,
+        priority: task?.priority ?? "medium",
+      }));
     })
     .sort(
       (a, b) =>
-        a.event.due.localeCompare(b.event.due) ||
-        a.at.localeCompare(b.at) ||
+        a.item.date.localeCompare(b.item.date) ||
+        a.item.at.localeCompare(b.item.at) ||
         priorityRank(a.priority) - priorityRank(b.priority),
     );
   const needle = query.trim().toLowerCase().replaceAll("ё", "е");
@@ -214,14 +217,14 @@ export function HomeScreen() {
       ) : (
         <div className="space-y-2">
           {reminders.map((item) => (
-            <Surface key={item.event.id}>
+            <Surface key={`${item.event.id}:${item.item.id}`}>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 <TypePill type={item.event.type} />
                 <PriorityPill priority={item.priority} />
               </div>
               <p className="text-sm font-medium">{item.event.title}</p>
               <p className="mt-1 text-xs text-[#626c77]">
-                {item.event.company} · {formatWhen(item.event.due, item.event.time)} · уведомление в {item.at}
+                {item.event.company} · событие {formatWhen(item.event.due, item.event.time)} · {reminderLabel(item.item)}
               </p>
             </Surface>
           ))}

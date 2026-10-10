@@ -9,7 +9,8 @@ import {
   Settings,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { clockNow, clockOf, todayIso } from "@/lib/dates";
+import { clockNow, todayIso } from "@/lib/dates";
+import { reminderItems } from "@/lib/reminders";
 import { Logo } from "@/components/bits";
 import { ConsentScreen } from "@/components/screens/consent";
 import { CalendarScreen } from "@/components/screens/calendar";
@@ -54,15 +55,16 @@ function Frame() {
       const today = todayIso(now);
       const hhmm = clockNow(now);
       for (const event of vault.events) {
-        const at = clockOf(vault.reminders?.[event.id]);
-        if (!at || event.due !== today || at > hhmm) continue;
-        const key = `fix-reminder:${event.id}:${event.due}:${at}`;
-        if (window.sessionStorage.getItem(key)) continue;
-        window.sessionStorage.setItem(key, "1");
-        const text = `Напоминание: ${event.title}, ${at}`;
-        store.flash(text);
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          new Notification("Фикс", { body: text });
+        for (const item of reminderItems(vault.reminders?.[event.id], event)) {
+          if (item.date !== today || item.at > hhmm) continue;
+          const key = `fix-reminder:${event.id}:${item.id}:${item.date}:${item.at}`;
+          if (window.sessionStorage.getItem(key)) continue;
+          window.sessionStorage.setItem(key, "1");
+          const text = `Напоминание: ${event.title}, ${item.at}`;
+          store.flash(text);
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("Фикс", { body: text });
+          }
         }
       }
     };

@@ -12,7 +12,8 @@ import {
 import { SCRIPT_TAIL_MS, scriptFor, type ScriptLine } from "@/lib/demo-script";
 import { activeDemo } from "@/lib/machine";
 import type { AgreementPatch } from "@/lib/machine";
-import type { AgreementType, Direction, Priority, Rule, Vault, View } from "@/lib/types";
+import type { AgreementType, Direction, Priority, ReminderItem, Rule, Vault, View } from "@/lib/types";
+import { packReminder } from "@/lib/reminders";
 
 type Playback = {
   running: boolean;
@@ -81,8 +82,8 @@ type Store = Session & {
   sendSummary: (callId: string) => void;
   viewTranscript: (detail: string) => void;
   openTranscript: (callId: string) => void;
-  saveReminder: (eventId: string, at: string) => void;
-  addEvent: (input: { title: string; due: string; time: string; remindAt: string; priority: Priority }) => void;
+  saveReminders: (eventId: string, items: ReminderItem[]) => void;
+  addEvent: (input: { title: string; due: string; time: string; priority: Priority; reminders: ReminderItem[] }) => void;
   uploadRecording: (file: File, client: string, company: string) => Promise<{ created: number; transcript: string }>;
   open: (view: View) => void;
   flash: (text: string) => void;
@@ -368,27 +369,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           adopt(await send("POST", "/api/audit", { detail }));
         });
       },
-      saveReminder: (eventId, at) => {
+      saveReminders: (eventId, items) => {
         setSession((prev) =>
           prev.vault
             ? {
                 ...prev,
                 vault: {
                   ...prev.vault,
-                  reminders: { ...(prev.vault.reminders ?? {}), [eventId]: { mode: "custom", custom: at, at } },
+                  reminders: { ...(prev.vault.reminders ?? {}), [eventId]: packReminder(items) },
                 },
               }
             : prev,
         );
         enqueue(async () => {
-          adopt(await send("PATCH", `/api/events/${eventId}/reminder`, { at }));
-          flash(`Напоминание записано на ${at}`);
+          adopt(await send("PATCH", `/api/events/${eventId}/reminder`, { items }));
+          flash(items.length ? `Сохранено напоминаний: ${items.length}` : "Напоминания убраны");
         });
       },
       addEvent: (input) => {
         enqueue(async () => {
           adopt(await send("POST", "/api/events", input));
-          flash(`Событие добавлено, уведомление в ${input.remindAt}`);
+          flash(
+            input.reminders.length
+              ? `Событие добавлено, напоминаний: ${input.reminders.length}`
+              : "Событие добавлено",
+          );
         });
       },
       uploadRecording: (file, client, company) => {

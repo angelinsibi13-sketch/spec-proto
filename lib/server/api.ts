@@ -15,13 +15,13 @@ import {
   markSummarySent,
   noteAccess,
   pushLine,
-  setReminder,
+  setReminderItems,
   setTaskStatus,
   setVoice,
   updateRule,
   type AgreementPatch,
 } from "@/lib/machine";
-import type { AgreementType, Direction, Priority, Vault } from "@/lib/types";
+import type { AgreementType, Direction, Priority, ReminderItem, Vault } from "@/lib/types";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { readVault, vaultFile, writeVault } from "@/lib/server/db";
@@ -192,13 +192,19 @@ export function patchVoice(voice: boolean) {
   );
 }
 
-export function saveReminder(eventId: string, at: string) {
-  return mutate("PATCH", `/api/events/${eventId}/reminder`, "Напоминание сохранено", (vault) =>
-    setReminder(vault, eventId, at),
+export function saveReminder(eventId: string, items: ReminderItem[]) {
+  return mutate("PATCH", `/api/events/${eventId}/reminder`, "Напоминания сохранены", (vault) =>
+    setReminderItems(vault, eventId, items),
   );
 }
 
-export function createEvent(input: { title: string; due: string; time: string; remindAt: string; priority: Priority }) {
+export function createEvent(input: {
+  title: string;
+  due: string;
+  time: string;
+  priority: Priority;
+  reminders: ReminderItem[];
+}) {
   return mutate("POST", "/api/events", "Событие добавлено", (vault) => addManualEvent(vault, input));
 }
 

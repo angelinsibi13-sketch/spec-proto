@@ -3,6 +3,7 @@ import { addDays, iso } from "@/lib/dates";
 import { IN_CALL, IN_SCRIPT, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-script";
 import { dedupeKey, extract } from "@/lib/extract";
 import { buildSummary } from "@/lib/hints";
+import { packReminder } from "@/lib/reminders";
 import { labelSpeakers, type SpeechSegment } from "@/lib/speakers";
 import type {
   Agreement,
@@ -14,6 +15,7 @@ import type {
   Origin,
   Priority,
   Rule,
+  ReminderItem,
   Task,
   Vault,
 } from "@/lib/types";
@@ -922,27 +924,34 @@ export function setVoice(vault: Vault, voice: boolean): Vault {
   return { ...vault, voice };
 }
 
-export function setReminder(vault: Vault, eventId: string, at: string): Vault {
+export function setReminderItems(vault: Vault, eventId: string, items: ReminderItem[]): Vault {
   const event = vault.events.find((item) => item.id === eventId);
-  if (!event || !/^\d{2}:\d{2}$/.test(at)) return vault;
+  if (!event) return vault;
+  const clean = items
+    .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.date) && /^\d{2}:\d{2}$/.test(item.at))
+    .slice(0, 8);
+  const detail = clean.map((item) => `${item.kind} ${item.date} ${item.at}`).join("; ") || "список пуст";
   return audit(
     {
       ...vault,
-      reminders: { ...vault.reminders, [eventId]: { mode: "custom", custom: at, at } },
+      reminders: { ...vault.reminders, [eventId]: packReminder(clean) },
     },
-    "Напоминание сохранено",
-    `${event.title}: ${at}`,
+    "Напоминания сохранены",
+    `${event.title}: ${detail}`,
   );
 }
 
 export function addManualEvent(
   vault: Vault,
-  input: { title: string; due: string; time: string; remindAt: string; priority: Priority },
+  input: { title: string; due: string; time: string; priority: Priority; reminders: ReminderItem[] },
   now = new Date(),
 ): Vault {
   const title = input.title.trim();
   if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(input.due)) return vault;
-  if (!/^\d{2}:\d{2}$/.test(input.time) || !/^\d{2}:\d{2}$/.test(input.remindAt)) return vault;
+  if (!/^\d{2}:\d{2}$/.test(input.time)) return vault;
+  const reminders = input.reminders
+    .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.date) && /^\d{2}:\d{2}$/.test(item.at))
+    .slice(0, 8);
   const agreementId = uid("manual");
   const event: CalEvent = {
     id: uid("evt"),
@@ -979,11 +988,11 @@ export function addManualEvent(
       tasks: [...vault.tasks, task],
       reminders: {
         ...vault.reminders,
-        [event.id]: { mode: "custom", custom: input.remindAt, at: input.remindAt },
+        [event.id]: packReminder(reminders),
       },
     },
     "Событие добавлено",
-    `${title} · ${input.due} ${input.time}, напоминание в ${input.remindAt}`,
+    `${title} · ${input.due} ${input.time}, напоминаний ${reminders.length}`,
     now,
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bell, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download } from "lucide-react";
+import { Bell, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { addDays, clockOf, formatMoney, formatWhen, iso, parseIso, todayIso } from "@/lib/dates";
+import { addDays, formatMoney, formatWhen, iso, parseIso, todayIso } from "@/lib/dates";
+import { atEvent, dayBefore, hourBefore, minutesBefore, reminderItems, reminderLabel } from "@/lib/reminders";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,7 +16,7 @@ import {
 import { PageTitle, Screen, Surface, TypePill } from "@/components/bits";
 import { downloadText, toIcs } from "@/lib/ics";
 import { useFix } from "@/lib/store";
-import type { CalEvent, Priority, Reminder } from "@/lib/types";
+import type { CalEvent, Priority, ReminderItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const WEEK = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -31,11 +32,6 @@ function monthCells(anchor: Date): Date[] {
   return cells;
 }
 
-function reminderText(reminder: Reminder | undefined): string | null {
-  const at = clockOf(reminder);
-  return at ? `Уведомление в ${at}` : null;
-}
-
 function parseClock(value: string | null | undefined): { hours: number; minutes: number } {
   const match = value?.match(/^(\d{2}):(\d{2})$/);
   if (!match) return { hours: 9, minutes: 0 };
@@ -44,6 +40,204 @@ function parseClock(value: string | null | undefined): { hours: number; minutes:
 
 function clockLabel(hours: number, minutes: number): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function prettyDate(value: string): string {
+  const parts = value.split("-");
+  if (parts.length !== 3) return value;
+  return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
+function pushDraft(list: ReminderItem[], item: Omit<ReminderItem, "id">): ReminderItem[] {
+  if (list.some((entry) => entry.kind === item.kind && entry.date === item.date && entry.at === item.at)) return list;
+  return [...list, { ...item, id: `rem-${crypto.randomUUID()}` }];
+}
+
+function ChoiceButton({
+  label,
+  value,
+  open,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onClick}
+      className="flex w-full items-center justify-between rounded-xl bg-white px-3 py-2 text-left text-sm ring-1 ring-[#1d2023]/10"
+    >
+      <span>{label}</span>
+      <span className="font-medium">{value}</span>
+    </button>
+  );
+}
+
+const PRESETS = [
+  { kind: "at", label: "В указанное время события" },
+  { kind: "ten", label: "За 10 минут" },
+  { kind: "hour", label: "За 1 час" },
+  { kind: "day", label: "За 1 день" },
+] as const;
+
+function slotFor(kind: (typeof PRESETS)[number]["kind"], due: string, time: string | null) {
+  if (kind === "at") return atEvent(due, time);
+  if (kind === "ten") return minutesBefore(due, time, 10);
+  if (kind === "hour") return hourBefore(due, time);
+  return dayBefore(due, time);
+}
+
+function Mark({ on }: { on: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-full border",
+        on ? "border-[#ff0032] bg-[#ff0032] text-white" : "border-[#1d2023]/25",
+      )}
+    >
+      {on ? <Check className="size-3" strokeWidth={3} /> : null}
+    </span>
+  );
+}
+
+function ReminderEditor({
+  due,
+  time,
+  drafts,
+  onChange,
+  date,
+  hours,
+  minutes,
+  dateOpen,
+  timeOpen,
+  onDate,
+  onHours,
+  onMinutes,
+  onToggleDate,
+  onToggleTime,
+  wheelName,
+}: {
+  due: string;
+  time: string | null;
+  drafts: ReminderItem[];
+  onChange: (next: ReminderItem[]) => void;
+  date: string;
+  hours: number;
+  minutes: number;
+  dateOpen: boolean;
+  timeOpen: boolean;
+  onDate: (value: string) => void;
+  onHours: (value: number) => void;
+  onMinutes: (value: number) => void;
+  onToggleDate: () => void;
+  onToggleTime: () => void;
+  wheelName: string;
+}) {
+  const [customOpen, setCustomOpen] = useState(false);
+  const full = drafts.length >= 8;
+  const dateReady = /^\d{4}-\d{2}-\d{2}$/.test(date);
+  const customs = drafts.filter((item) => item.kind === "custom");
+
+  function togglePreset(kind: (typeof PRESETS)[number]["kind"]) {
+    const current = drafts.find((item) => item.kind === kind);
+    if (current) {
+      onChange(drafts.filter((item) => item.id !== current.id));
+      return;
+    }
+    if (full) return;
+    const slot = slotFor(kind, due, time);
+    onChange(pushDraft(drafts, { kind, date: slot.date, at: slot.at }));
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-[#1d2023]/10">
+        {PRESETS.map((preset, index) => {
+          const on = drafts.some((item) => item.kind === preset.kind);
+          return (
+            <button
+              key={preset.kind}
+              type="button"
+              aria-pressed={on}
+              onClick={() => togglePreset(preset.kind)}
+              className={cn(
+                "flex w-full items-center gap-3 px-4 py-3 text-left text-sm",
+                index > 0 && "border-t border-[#1d2023]/8",
+              )}
+            >
+              <Mark on={on} />
+              <span>{preset.label}</span>
+            </button>
+          );
+        })}
+        {customs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed
+            onClick={() => onChange(drafts.filter((entry) => entry.id !== item.id))}
+            className="flex w-full items-center gap-3 border-t border-[#1d2023]/8 px-4 py-3 text-left text-sm"
+          >
+            <Mark on />
+            <span>
+              Пользовательское
+              <span className="mt-0.5 block text-xs text-[#626c77]">
+                {prettyDate(item.date)}, {item.at}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        aria-expanded={customOpen}
+        onClick={() => setCustomOpen((open) => !open)}
+        className="flex w-full items-center gap-3 rounded-2xl bg-white px-4 py-3 text-left text-sm ring-1 ring-[#1d2023]/10"
+      >
+        <Plus className="size-4 text-[#ff0032]" />
+        Пользовательское
+      </button>
+      {customOpen ? (
+        <div className="space-y-2">
+          <ChoiceButton label="Дата уведомления" value={prettyDate(date)} open={dateOpen} onClick={onToggleDate} />
+          {dateOpen ? (
+            <Input
+              type="date"
+              aria-label="Дата уведомления"
+              value={date}
+              onChange={(event) => onDate(event.target.value)}
+              className="h-10"
+            />
+          ) : null}
+          <ChoiceButton
+            label="Время уведомления"
+            value={clockLabel(hours, minutes)}
+            open={timeOpen}
+            onClick={onToggleTime}
+          />
+          {timeOpen ? (
+            <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
+              <Wheel label="Часы" name={`${wheelName}, часы`} value={hours} max={23} onChange={onHours} />
+              <Wheel label="Минуты" name={`${wheelName}, минуты`} value={minutes} max={59} onChange={onMinutes} />
+            </div>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 w-full"
+            disabled={full || !dateReady}
+            onClick={() => onChange(pushDraft(drafts, { kind: "custom", date, at: clockLabel(hours, minutes) }))}
+          >
+            Добавить
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function Wheel({
@@ -91,18 +285,29 @@ function Wheel({
 }
 
 export function CalendarScreen() {
-  const { vault, saveReminder, addEvent } = useFix();
+  const { vault, saveReminders, addEvent } = useFix();
   const [anchor, setAnchor] = useState(() => new Date());
   const [selected, setSelected] = useState(todayIso());
   const [reminderFor, setReminderFor] = useState<string | null>(null);
-  const [hours, setHours] = useState(9);
-  const [minutes, setMinutes] = useState(0);
+  const [drafts, setDrafts] = useState<ReminderItem[]>([]);
+  const [customDate, setCustomDate] = useState(todayIso());
+  const [customHours, setCustomHours] = useState(9);
+  const [customMinutes, setCustomMinutes] = useState(0);
+  const [customDateOpen, setCustomDateOpen] = useState(false);
+  const [customTimeOpen, setCustomTimeOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [eventTitle, setEventTitle] = useState("");
+  const [eventDate, setEventDate] = useState(todayIso());
   const [eventHours, setEventHours] = useState(10);
   const [eventMinutes, setEventMinutes] = useState(0);
-  const [remindHours, setRemindHours] = useState(9);
-  const [remindMinutes, setRemindMinutes] = useState(30);
+  const [eventDateOpen, setEventDateOpen] = useState(false);
+  const [eventTimeOpen, setEventTimeOpen] = useState(false);
+  const [eventDrafts, setEventDrafts] = useState<ReminderItem[]>([]);
+  const [noteDate, setNoteDate] = useState(todayIso());
+  const [noteHours, setNoteHours] = useState(9);
+  const [noteMinutes, setNoteMinutes] = useState(0);
+  const [noteDateOpen, setNoteDateOpen] = useState(false);
+  const [noteTimeOpen, setNoteTimeOpen] = useState(false);
   const [priority, setPriority] = useState<Priority>("medium");
   const events = vault?.events;
 
@@ -248,7 +453,27 @@ export function CalendarScreen() {
           <h3 className="text-sm font-medium capitalize text-[#626c77]">
             {parseIso(selected).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })}
           </h3>
-          <Button variant="outline" className="h-9" onClick={() => setAdding(true)}>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => {
+              const ahead = dayBefore(selected, "10:00");
+              setEventTitle("");
+              setEventDate(selected);
+              setEventHours(10);
+              setEventMinutes(0);
+              setEventDateOpen(false);
+              setEventTimeOpen(false);
+              setEventDrafts([]);
+              setNoteDate(ahead.date);
+              setNoteHours(9);
+              setNoteMinutes(0);
+              setNoteDateOpen(false);
+              setNoteTimeOpen(false);
+              setPriority("medium");
+              setAdding(true);
+            }}
+          >
             Добавить событие
           </Button>
         </div>
@@ -266,7 +491,7 @@ export function CalendarScreen() {
               .
             </p>
             {chosen.map((event) => {
-              const saved = reminderText(reminders[event.id]);
+              const saved = reminderItems(reminders[event.id], event);
               return (
                 <Surface key={event.id}>
                   <div className="flex items-start justify-between gap-3">
@@ -279,7 +504,15 @@ export function CalendarScreen() {
                         {event.company} · {formatWhen(event.due, event.time)}
                         {formatMoney(event.amount) ? ` · ${formatMoney(event.amount)}` : ""}
                       </p>
-                      {saved ? <p className="mt-2 text-xs font-medium text-[#ff0032]">{saved}</p> : null}
+                      {saved.length > 0 ? (
+                        <ul className="mt-2 space-y-0.5">
+                          {saved.map((item) => (
+                            <li key={item.id} className="text-xs font-medium text-[#ff0032]">
+                              {reminderLabel(item)}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                     <Button
                       variant="outline"
@@ -287,9 +520,15 @@ export function CalendarScreen() {
                       className="size-9 shrink-0"
                       aria-label={`Напоминание: ${event.title}`}
                       onClick={() => {
-                        const current = parseClock(clockOf(reminders[event.id]) ?? event.time);
-                        setHours(current.hours);
-                        setMinutes(current.minutes);
+                        const items = reminderItems(reminders[event.id], event);
+                        const clock = parseClock(event.time);
+                        const ahead = dayBefore(event.due, event.time);
+                        setDrafts(items);
+                        setCustomDate(ahead.date);
+                        setCustomHours(clock.hours);
+                        setCustomMinutes(clock.minutes);
+                        setCustomDateOpen(false);
+                        setCustomTimeOpen(false);
                         setReminderFor(event.id);
                       }}
                     >
@@ -304,25 +543,41 @@ export function CalendarScreen() {
       </div>
 
       <Dialog open={reminderFor !== null} onOpenChange={(open) => { if (!open) setReminderFor(null); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Напоминание{reminderEvent ? ` · ${reminderEvent.title}` : ""}</DialogTitle>
+            <DialogTitle>Напоминания{reminderEvent ? ` · ${reminderEvent.title}` : ""}</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-[#626c77]">Уведомление придёт в это время в день события.</p>
-          <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
-            <Wheel label="Часы" value={hours} max={23} onChange={setHours} />
-            <Wheel label="Минуты" value={minutes} max={59} onChange={setMinutes} />
-          </div>
+          <p className="text-sm text-[#626c77]">
+            Несколько уведомлений на разные дни и время. Карусель часов и дата открываются по нажатию.
+          </p>
+          {reminderEvent ? (
+            <ReminderEditor
+              due={reminderEvent.due}
+              time={reminderEvent.time}
+              drafts={drafts}
+              onChange={setDrafts}
+              date={customDate}
+              hours={customHours}
+              minutes={customMinutes}
+              dateOpen={customDateOpen}
+              timeOpen={customTimeOpen}
+              onDate={setCustomDate}
+              onHours={setCustomHours}
+              onMinutes={setCustomMinutes}
+              onToggleDate={() => setCustomDateOpen((open) => !open)}
+              onToggleTime={() => setCustomTimeOpen((open) => !open)}
+              wheelName="Уведомление"
+            />
+          ) : null}
           <DialogFooter>
             <Button
               className="h-10"
               onClick={() => {
                 if (!reminderFor) return;
-                const at = clockLabel(hours, minutes);
-                if (typeof Notification !== "undefined" && Notification.permission === "default") {
+                if (drafts.length > 0 && typeof Notification !== "undefined" && Notification.permission === "default") {
                   void Notification.requestPermission();
                 }
-                saveReminder(reminderFor, at);
+                saveReminders(reminderFor, drafts);
                 setReminderFor(null);
               }}
             >
@@ -341,16 +596,51 @@ export function CalendarScreen() {
             Название
             <Input id="event-title" value={eventTitle} onChange={(event) => setEventTitle(event.target.value)} className="mt-1.5 h-10" />
           </label>
-          <p className="text-sm text-[#626c77]">Время события</p>
-          <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
-            <Wheel label="Часы" name="Время события, часы" value={eventHours} max={23} onChange={setEventHours} />
-            <Wheel label="Минуты" name="Время события, минуты" value={eventMinutes} max={59} onChange={setEventMinutes} />
-          </div>
-          <p className="text-sm text-[#626c77]">Время уведомления</p>
-          <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
-            <Wheel label="Часы" name="Уведомление, часы" value={remindHours} max={23} onChange={setRemindHours} />
-            <Wheel label="Минуты" name="Уведомление, минуты" value={remindMinutes} max={59} onChange={setRemindMinutes} />
-          </div>
+          <ChoiceButton
+            label="Дата события"
+            value={prettyDate(eventDate)}
+            open={eventDateOpen}
+            onClick={() => setEventDateOpen((open) => !open)}
+          />
+          {eventDateOpen ? (
+            <Input
+              type="date"
+              aria-label="Дата события"
+              value={eventDate}
+              onChange={(event) => setEventDate(event.target.value)}
+              className="h-10"
+            />
+          ) : null}
+          <ChoiceButton
+            label="Время события"
+            value={clockLabel(eventHours, eventMinutes)}
+            open={eventTimeOpen}
+            onClick={() => setEventTimeOpen((open) => !open)}
+          />
+          {eventTimeOpen ? (
+            <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
+              <Wheel label="Часы" name="Время события, часы" value={eventHours} max={23} onChange={setEventHours} />
+              <Wheel label="Минуты" name="Время события, минуты" value={eventMinutes} max={59} onChange={setEventMinutes} />
+            </div>
+          ) : null}
+          <p className="text-sm text-[#626c77]">Напоминания. Дата и время уведомления — по нажатию.</p>
+          <ReminderEditor
+            due={eventDate}
+            time={clockLabel(eventHours, eventMinutes)}
+            drafts={eventDrafts}
+            onChange={setEventDrafts}
+            date={noteDate}
+            hours={noteHours}
+            minutes={noteMinutes}
+            dateOpen={noteDateOpen}
+            timeOpen={noteTimeOpen}
+            onDate={setNoteDate}
+            onHours={setNoteHours}
+            onMinutes={setNoteMinutes}
+            onToggleDate={() => setNoteDateOpen((open) => !open)}
+            onToggleTime={() => setNoteTimeOpen((open) => !open)}
+            wheelName="Уведомление события"
+          />
           <div className="flex gap-2">
             {(
               [
@@ -375,19 +665,20 @@ export function CalendarScreen() {
           <DialogFooter>
             <Button
               className="h-10"
-              disabled={!eventTitle.trim()}
+              disabled={!eventTitle.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(eventDate)}
               onClick={() => {
-                if (typeof Notification !== "undefined" && Notification.permission === "default") {
+                if (eventDrafts.length > 0 && typeof Notification !== "undefined" && Notification.permission === "default") {
                   void Notification.requestPermission();
                 }
                 addEvent({
                   title: eventTitle.trim(),
-                  due: selected,
+                  due: eventDate,
                   time: clockLabel(eventHours, eventMinutes),
-                  remindAt: clockLabel(remindHours, remindMinutes),
                   priority,
+                  reminders: eventDrafts,
                 });
                 setEventTitle("");
+                setEventDrafts([]);
                 setAdding(false);
               }}
             >
