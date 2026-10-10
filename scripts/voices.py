@@ -100,9 +100,9 @@ def measure(samples: array.array, rate: int, start: float, end: float) -> tuple[
 def _separated(low_pitch: float, high_pitch: float, low_dark: float, high_dark: float) -> bool:
     if low_pitch <= 0:
         return False
-    if high_pitch >= low_pitch * 1.16:
+    if high_pitch - low_pitch >= 12 and high_pitch >= low_pitch * 1.08:
         return True
-    return abs(high_dark - low_dark) >= 0.08 and high_pitch >= low_pitch * 1.08
+    return abs(high_dark - low_dark) >= 0.045 and high_pitch >= low_pitch * 1.04
 
 
 def _assign(items: list[dict], groups: list[list[int]]) -> None:
@@ -183,9 +183,9 @@ def inherit_voices(items: list[dict]) -> None:
             continue
         previous = next((items[cursor] for cursor in range(index - 1, -1, -1) if items[cursor].get("voice") is not None), None)
         following = next((items[cursor] for cursor in range(index + 1, len(items)) if items[cursor].get("voice") is not None), None)
-        if previous is not None and item["start"] - previous["end"] <= 0.45:
+        if previous is not None and item["start"] - previous["end"] <= 0.22:
             item["voice"] = previous["voice"]
-        elif following is not None and following["start"] - item["end"] <= 0.45:
+        elif following is not None and following["start"] - item["end"] <= 0.22:
             item["voice"] = following["voice"]
 
 
@@ -203,7 +203,7 @@ def group_turns(items: list[dict]) -> list[dict]:
             previous = turns[-1]
             gap = start - previous["end"]
             repeated = text.casefold() == previous["text"].casefold() and gap < 1.2
-            same_voice = voice is not None and voice == previous.get("voice") and gap < 0.7
+            same_voice = voice is not None and voice == previous.get("voice") and gap < 0.42
             if repeated or same_voice:
                 if not repeated:
                     previous["text"] = f"{previous['text']} {text}"
@@ -224,6 +224,36 @@ def group_turns(items: list[dict]) -> list[dict]:
         turn["start"] = round(turn["start"], 2)
         turn["end"] = round(turn["end"], 2)
     return turns
+
+
+def chunk_words(items: list[dict], pause: float = 0.28, limit: float = 1.15) -> list[dict]:
+    buckets: list[list[dict]] = []
+    current: list[dict] = []
+    for item in items:
+        if current:
+            gap = float(item["start"]) - float(current[-1]["end"])
+            length = float(current[-1]["end"]) - float(current[0]["start"])
+            if gap > pause or length >= limit:
+                buckets.append(current)
+                current = []
+        current.append(item)
+    if current:
+        buckets.append(current)
+    chunks = []
+    for bucket in buckets:
+        text = " ".join(" ".join(str(item.get("text") or "").split()) for item in bucket).strip()
+        if len(text) < 2:
+            continue
+        pitch = next((item.get("pitch") for item in bucket if item.get("pitch")), None)
+        chunks.append(
+            {
+                "text": text,
+                "start": float(bucket[0]["start"]),
+                "end": float(bucket[-1]["end"]),
+                "pitch": pitch,
+            }
+        )
+    return chunks
 
 
 def diarize(items: list[dict], samples: array.array, rate: int) -> list[dict]:

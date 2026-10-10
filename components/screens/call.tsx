@@ -218,7 +218,7 @@ function AgreementCard({ item, onDelete }: { item: Agreement; onDelete: (id: str
         {formatWhen(item.due, item.time)}
         {money ? ` · ${money}` : ""}
       </p>
-      <p className="mt-2 text-xs leading-relaxed text-[#626c77]">«{item.phrase}»</p>
+      <p className="mt-2 text-xs leading-relaxed text-[#626c77]">{item.phrase}</p>
       <p className="mt-2 text-[11px] font-medium text-[#027a48]">Задача CRM и событие календаря созданы · {state}</p>
       <div className="mt-2 flex gap-4">
         <button type="button" className="text-xs font-medium text-[#ff0032]" onClick={() => setEditing((value) => !value)}>

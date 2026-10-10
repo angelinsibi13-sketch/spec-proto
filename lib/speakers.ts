@@ -46,7 +46,7 @@ function cluster(pitches: number[]): { low: number; high: number } | null {
   if (low.length === 0 || high.length === 0) return null;
   const lowMedian = median(low);
   const highMedian = median(high);
-  if (highMedian < lowMedian * 1.2) return null;
+  if (highMedian - lowMedian < 12 || highMedian < lowMedian * 1.08) return null;
   return { low: lowMedian, high: highMedian };
 }
 

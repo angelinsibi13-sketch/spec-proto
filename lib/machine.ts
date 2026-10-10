@@ -2,7 +2,8 @@ import { defaultRules } from "@/lib/catalog";
 import { addDays, iso } from "@/lib/dates";
 import { IN_CALL, IN_SCRIPT, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-script";
 import { borrowPhrases, dedupeKey, extract } from "@/lib/extract";
-import { buildSummary } from "@/lib/hints";
+import { buildSummary, describeDeal } from "@/lib/hints";
+import { tidySpeech } from "@/lib/speech";
 import { packReminder } from "@/lib/reminders";
 import { labelSpeakers, type SpeechSegment } from "@/lib/speakers";
 import type {
@@ -20,7 +21,7 @@ import type {
   Vault,
 } from "@/lib/types";
 
-export const TRANSCRIPT_ENGINE = 3;
+export const TRANSCRIPT_ENGINE = 4;
 
 function uid(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -57,7 +58,7 @@ function record(vault: Vault, call: Call, phrase: string, now: Date, origin: Ori
     type: hit.type,
     client: call.client,
     company: call.company,
-    phrase,
+    phrase: describeDeal(hit.type, hit.due, hit.time, hit.amount, now),
     title: hit.title,
     due: hit.due,
     time: hit.time,
@@ -134,21 +135,16 @@ function stripDerived(vault: Vault, callId: string): Vault {
 
 function speakInto(vault: Vault, call: Call, segments: SpeechSegment[], origin: Origin, now: Date): Vault {
   const labeled = labelSpeakers(segments, call.client);
-  const spoken: { speaker: "agent" | "client"; name: string; text: string; start: number }[] = [];
-  for (const piece of labeled) {
-    for (const phrase of splitPhrases(piece.text)) {
-      spoken.push({ speaker: piece.speaker, name: piece.name, text: phrase, start: piece.start });
-    }
-  }
+  const raw: string[] = [];
   let next = vault;
-  for (const phrase of spoken) {
+  for (const piece of labeled) {
     const line = {
       id: uid("line"),
-      speaker: phrase.speaker,
-      name: phrase.name,
-      text: phrase.text,
+      speaker: piece.speaker,
+      name: piece.name,
+      text: tidySpeech(piece.text),
       fromScript: false,
-      atMs: Math.round(phrase.start * 1000),
+      atMs: Math.round(piece.start * 1000),
     };
     next = {
       ...next,
@@ -159,21 +155,19 @@ function speakInto(vault: Vault, call: Call, segments: SpeechSegment[], origin: 
               lines: [...item.lines, line],
               counterpartyNotified:
                 item.counterpartyNotified ||
-                (phrase.speaker === "client" && partyAgrees(phrase.text.toLowerCase())),
+                (piece.speaker === "client" && partyAgrees(piece.text.toLowerCase())),
             }
           : item,
       ),
     };
     const current = next.calls.find((item) => item.id === call.id) ?? call;
-    next = record(next, current, phrase.text, now, origin);
+    for (const phrase of splitPhrases(piece.text)) {
+      raw.push(phrase);
+      next = record(next, current, phrase, now, origin);
+    }
   }
   const current = next.calls.find((item) => item.id === call.id) ?? call;
-  for (const phrase of borrowPhrases(
-    spoken.map((item) => item.text),
-    next.rules,
-    now,
-    call.client,
-  )) {
+  for (const phrase of borrowPhrases(raw, next.rules, now, call.client)) {
     next = record(next, current, phrase, now, origin);
   }
   return next;

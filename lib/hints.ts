@@ -1,6 +1,30 @@
 import { TYPE_INFO } from "@/lib/catalog";
-import { formatMoney, formatShort, formatWhen } from "@/lib/dates";
+import { formatLong, formatMoney, formatShort, formatWhen } from "@/lib/dates";
 import type { Agreement, AgreementType, Call } from "@/lib/types";
+
+export function describeDeal(
+  type: AgreementType,
+  due: string,
+  time: string | null,
+  amount: number | null,
+  now = new Date(),
+): string {
+  const date = formatLong(due, now);
+  const when = time ? `${date} в ${time}` : date;
+  const money = amount ? ` на ${formatMoney(amount)}` : "";
+  switch (type) {
+    case "kp":
+      return `Отправить коммерческое предложение${money} до ${when}.`;
+    case "meeting":
+      return `Созвон ${when}.`;
+    case "payment":
+      return `Проконтролировать оплату${money} до ${when}.`;
+    case "callback":
+      return `Перезвонить ${when}.`;
+    case "docs":
+      return `Отправить документы до ${when}.`;
+  }
+}
 
 export function hintText(
   type: AgreementType,

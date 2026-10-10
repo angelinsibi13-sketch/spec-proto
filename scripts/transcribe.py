@@ -10,7 +10,7 @@ import av
 from faster_whisper import WhisperModel
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from voices import diarize
+from voices import chunk_words, diarize
 
 _open = av.open
 
@@ -37,7 +37,7 @@ def load_wav(path: str) -> tuple[array.array, int]:
     return samples, rate
 
 
-def utterances(segments, gap: float = 0.45):
+def utterances(segments):
     words = []
     loose = []
     for segment in segments:
@@ -46,32 +46,18 @@ def utterances(segments, gap: float = 0.45):
             for word in segment_words:
                 token = (word.word or "").strip()
                 if token:
-                    words.append(word)
+                    words.append(
+                        {
+                            "text": token,
+                            "start": round(float(word.start), 2),
+                            "end": round(float(word.end), 2),
+                        }
+                    )
             continue
         text = (segment.text or "").strip()
         if text:
             loose.append({"start": round(segment.start, 2), "end": round(segment.end, 2), "text": text})
-    if not words:
-        return loose
-    grouped = [[words[0]]]
-    for word in words[1:]:
-        if word.start - grouped[-1][-1].end > gap:
-            grouped.append([word])
-        else:
-            grouped[-1].append(word)
-    payload = []
-    for group in grouped:
-        text = " ".join((word.word or "").strip() for word in group).strip()
-        if not text:
-            continue
-        payload.append(
-            {
-                "start": round(group[0].start, 2),
-                "end": round(group[-1].end, 2),
-                "text": text,
-            }
-        )
-    return payload
+    return chunk_words(words) if words else loose
 
 
 def main() -> None:

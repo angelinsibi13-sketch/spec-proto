@@ -1,6 +1,8 @@
 import { ACCURACY_NOW, contextHits, rehearsalHits, scoreAccuracy } from "./accuracy";
 import { defaultRules } from "./catalog";
 import { extract } from "./extract";
+import { describeDeal } from "./hints";
+import { tidySpeech } from "./speech";
 import { labelSpeakers } from "./speakers";
 
 const score = scoreAccuracy();
@@ -56,6 +58,14 @@ const speakersOk =
   dialogue[0].name === "Алексей Морозов" &&
   dialogue[1].name === "Ирина Павлова";
 if (!speakersOk) console.log("SPEAKERS", JSON.stringify(dialogue));
-if (score.ratio < 0.9 || falseHits.length > 0 || kinds !== expected || !contextOk || !speakersOk) {
+const tidy = tidySpeech("пришлю кп до пятницы");
+const brief = describeDeal("kp", "2026-10-17", "11:00", null, ACCURACY_NOW);
+const meetingBrief = describeDeal("meeting", "2026-10-12", "11:00", null, ACCURACY_NOW);
+const textOk =
+  tidy === "Пришлю КП до пятницы." &&
+  brief === "Отправить коммерческое предложение до 17 октября в 11:00." &&
+  meetingBrief === "Созвон 12 октября в 11:00.";
+if (!textOk) console.log("TEXT", tidy, brief, meetingBrief);
+if (score.ratio < 0.9 || falseHits.length > 0 || kinds !== expected || !contextOk || !speakersOk || !textOk) {
   process.exit(1);
 }
