@@ -3,7 +3,9 @@ import { MANAGER } from "@/lib/demo-script";
 export type SpeechSegment = {
   text: string;
   start?: number;
+  end?: number;
   pitch?: number | null;
+  voice?: number | null;
 };
 
 export type LabeledSpeech = {
@@ -44,8 +46,17 @@ function cluster(pitches: number[]): { low: number; high: number } | null {
   if (low.length === 0 || high.length === 0) return null;
   const lowMedian = median(low);
   const highMedian = median(high);
-  if (highMedian < lowMedian * 1.2) return null;
+  if (highMedian - lowMedian < 12 || highMedian < lowMedian * 1.08) return null;
   return { low: lowMedian, high: highMedian };
+}
+
+function named(speaker: "agent" | "client", client: string, text: string, start: number): LabeledSpeech {
+  return {
+    speaker,
+    name: speaker === "agent" ? MANAGER : client,
+    text,
+    start,
+  };
 }
 
 export function labelSpeakers(segments: SpeechSegment[], client: string): LabeledSpeech[] {
@@ -56,20 +67,36 @@ export function labelSpeakers(segments: SpeechSegment[], client: string): Labele
     .map((segment) => segment.pitch)
     .filter((pitch): pitch is number => typeof pitch === "number" && pitch >= 70 && pitch <= 450);
   const voices = cluster(pitches);
-  return usable.map((segment) => {
+  const draft = usable.map((segment) => {
+    const start = segment.start ?? 0;
+    const end = segment.end ?? start;
     const cue = MANAGER_CUE.test(normalize(segment.text));
-    let speaker: "agent" | "client" = "client";
-    if (cue) speaker = "agent";
-    else if (voices && typeof segment.pitch === "number" && segment.pitch >= 70 && segment.pitch <= 450) {
+    if (cue) return { speaker: "agent" as const, locked: true, text: segment.text, start, end };
+    if (segment.voice === 0) return { speaker: "agent" as const, locked: true, text: segment.text, start, end };
+    if (segment.voice === 1) return { speaker: "client" as const, locked: true, text: segment.text, start, end };
+    if (voices && typeof segment.pitch === "number" && segment.pitch >= 70 && segment.pitch <= 450) {
       const toLow = Math.abs(segment.pitch - voices.low);
       const toHigh = Math.abs(segment.pitch - voices.high);
-      speaker = toLow <= toHigh ? "agent" : "client";
+      return {
+        speaker: (toLow <= toHigh ? "agent" : "client") as "agent" | "client",
+        locked: true,
+        text: segment.text,
+        start,
+        end,
+      };
     }
-    return {
-      speaker,
-      name: speaker === "agent" ? MANAGER : client,
-      text: segment.text,
-      start: segment.start ?? 0,
-    };
+    return { speaker: "client" as const, locked: false, text: segment.text, start, end };
   });
+  for (let index = 0; index < draft.length; index += 1) {
+    const line = draft[index];
+    if (line.locked) continue;
+    let previous: (typeof draft)[number] | null = null;
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+      if (!draft[cursor].locked) continue;
+      if (line.start - draft[cursor].end <= 0.8) previous = draft[cursor];
+      break;
+    }
+    if (previous) line.speaker = previous.speaker;
+  }
+  return draft.map((line) => named(line.speaker, client, line.text, line.start));
 }

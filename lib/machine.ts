@@ -1,8 +1,9 @@
 import { defaultRules } from "@/lib/catalog";
 import { addDays, iso } from "@/lib/dates";
 import { IN_CALL, IN_SCRIPT, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-script";
-import { dedupeKey, extract } from "@/lib/extract";
-import { buildSummary } from "@/lib/hints";
+import { borrowPhrases, dedupeKey, extract } from "@/lib/extract";
+import { buildSummary, describeDeal } from "@/lib/hints";
+import { tidySpeech } from "@/lib/speech";
 import { packReminder } from "@/lib/reminders";
 import { labelSpeakers, type SpeechSegment } from "@/lib/speakers";
 import type {
@@ -19,6 +20,8 @@ import type {
   Task,
   Vault,
 } from "@/lib/types";
+
+export const TRANSCRIPT_ENGINE = 5;
 
 function uid(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -55,7 +58,7 @@ function record(vault: Vault, call: Call, phrase: string, now: Date, origin: Ori
     type: hit.type,
     client: call.client,
     company: call.company,
-    phrase,
+    phrase: describeDeal(hit.type, hit.due, hit.time, hit.amount, now),
     title: hit.title,
     due: hit.due,
     time: hit.time,
@@ -132,34 +135,40 @@ function stripDerived(vault: Vault, callId: string): Vault {
 
 function speakInto(vault: Vault, call: Call, segments: SpeechSegment[], origin: Origin, now: Date): Vault {
   const labeled = labelSpeakers(segments, call.client);
+  const raw: string[] = [];
   let next = vault;
   for (const piece of labeled) {
+    const line = {
+      id: uid("line"),
+      speaker: piece.speaker,
+      name: piece.name,
+      text: tidySpeech(piece.text),
+      fromScript: false,
+      atMs: Math.round(piece.start * 1000),
+    };
+    next = {
+      ...next,
+      calls: next.calls.map((item) =>
+        item.id === call.id
+          ? {
+              ...item,
+              lines: [...item.lines, line],
+              counterpartyNotified:
+                item.counterpartyNotified ||
+                (piece.speaker === "client" && partyAgrees(piece.text.toLowerCase())),
+            }
+          : item,
+      ),
+    };
+    const current = next.calls.find((item) => item.id === call.id) ?? call;
     for (const phrase of splitPhrases(piece.text)) {
-      const line = {
-        id: uid("line"),
-        speaker: piece.speaker,
-        name: piece.name,
-        text: phrase,
-        fromScript: false,
-        atMs: Math.round(piece.start * 1000),
-      };
-      next = {
-        ...next,
-        calls: next.calls.map((item) =>
-          item.id === call.id
-            ? {
-                ...item,
-                lines: [...item.lines, line],
-                counterpartyNotified:
-                  item.counterpartyNotified ||
-                  (piece.speaker === "client" && partyAgrees(phrase.toLowerCase())),
-              }
-            : item,
-        ),
-      };
-      const current = next.calls.find((item) => item.id === call.id) ?? call;
+      raw.push(phrase);
       next = record(next, current, phrase, now, origin);
     }
+  }
+  const current = next.calls.find((item) => item.id === call.id) ?? call;
+  for (const phrase of borrowPhrases(raw, next.rules, now, call.client)) {
+    next = record(next, current, phrase, now, origin);
   }
   return next;
 }
@@ -247,6 +256,7 @@ export function applyRecordingTranscript(
     audio: input.audio,
     audioSha: input.audioSha,
     sourceFile: input.sourceFile,
+    transcriptEngine: TRANSCRIPT_ENGINE,
   };
   const seeded: Vault = existing
     ? { ...cleared, calls: cleared.calls.map((item) => (item.id === callId ? call : item)) }
@@ -273,7 +283,12 @@ export function markRecording(
     ) ??
     (input.known ? vault.calls.find((call) => call.origin !== "demo" && call.client === input.client) : undefined);
   if (!existing) return { vault, changed: false };
-  if (existing.audioSha === input.audioSha && existing.transcriptNote === input.note && existing.sourceFile === input.sourceFile) {
+  if (
+    existing.audioSha === input.audioSha &&
+    existing.transcriptNote === input.note &&
+    existing.sourceFile === input.sourceFile &&
+    existing.transcriptEngine === TRANSCRIPT_ENGINE
+  ) {
     return { vault, changed: false };
   }
   return {
@@ -287,6 +302,7 @@ export function markRecording(
               audioSha: input.audioSha,
               sourceFile: input.sourceFile,
               transcriptNote: input.note,
+              transcriptEngine: TRANSCRIPT_ENGINE,
             }
           : call,
       ),

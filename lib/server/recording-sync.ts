@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { applyRecordingTranscript, markRecording } from "@/lib/machine";
+import { TRANSCRIPT_ENGINE, applyRecordingTranscript, markRecording } from "@/lib/machine";
 import type { Vault } from "@/lib/types";
 import {
   browserSafe,
@@ -81,7 +81,7 @@ function readCache(hash: string): TranscriptSegment[] | null {
   if (!existsSync(file)) return null;
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as { v?: number; segments?: TranscriptSegment[] };
-    if (parsed.v !== 1 || !Array.isArray(parsed.segments)) return null;
+    if (parsed.v !== 5 || !Array.isArray(parsed.segments)) return null;
     return parsed.segments;
   } catch {
     return null;
@@ -91,7 +91,7 @@ function readCache(hash: string): TranscriptSegment[] | null {
 function writeCache(hash: string, segments: TranscriptSegment[]) {
   const file = cachePath(hash);
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ v: 1, segments }));
+  writeFileSync(file, JSON.stringify({ v: 5, segments }));
 }
 
 function findCall(vault: Vault, file: Found, client: string, known: boolean) {
@@ -143,7 +143,9 @@ async function syncBody(vault: Vault): Promise<{ vault: Vault; changed: boolean 
     const hash = sha256(file.abs);
     const profile = profileFor(file.base);
     const current = findCall(next, file, profile.client, profile.known);
-    if (current?.audioSha === hash && current.sourceFile === file.base) continue;
+    if (current?.audioSha === hash && current.sourceFile === file.base && current.transcriptEngine === TRANSCRIPT_ENGINE) {
+      continue;
+    }
     if (SCRIPTED.has(hash)) {
       const marked = markRecording(next, {
         sourceFile: file.base,

@@ -41,6 +41,7 @@ export type Call = {
   audioSha?: string;
   sourceFile?: string;
   transcriptNote?: string;
+  transcriptEngine?: number;
 };
 
 export type Agreement = {

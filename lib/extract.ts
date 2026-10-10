@@ -36,6 +36,12 @@ export function normalize(text: string): string {
     .toLowerCase()
     .replaceAll("ё", "е")
     .replace(/[«»"“”]/g, " ")
+    .replace(/к\s*\.\s*п/g, "кп")
+    .replace(/(^|[^а-яa-z0-9])ка\s*пэ([^а-яa-z0-9]|$)/g, "$1кп$2")
+    .replace(/(^|[^а-яa-z0-9])капэ([^а-яa-z0-9]|$)/g, "$1кп$2")
+    .replace(/(^|[^а-яa-z0-9])кэпэ([^а-яa-z0-9]|$)/g, "$1кп$2")
+    .replace(/(^|[^а-яa-z0-9])со\s+звон/g, "$1созвон")
+    .replace(/комерческ/g, "коммерческ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -53,7 +59,10 @@ function keywordIndex(text: string, keyword: string): number {
     ).exec(text);
     return match ? match.index + match[1].length : -1;
   }
-  return text.indexOf(stem);
+  const index = text.indexOf(stem);
+  if (index < 0) return -1;
+  if (stem === "договор" && text.startsWith("договорен", index)) return -1;
+  return index;
 }
 
 function matchType(text: string, rules: Rule[]): { rule: Rule; index: number } | null {
@@ -243,4 +252,44 @@ export function extract(text: string, rules: Rule[], now: Date, client: string):
 
 export function dedupeKey(type: AgreementType, due: string): string {
   return `${type}|${due}`;
+}
+
+function hasKeyword(text: string, rules: Rule[]): boolean {
+  return matchType(normalize(text), rules) !== null;
+}
+
+function hasWhen(text: string, now: Date): boolean {
+  const normalized = normalize(text);
+  return collectDates(normalized, now).length > 0 || collectTimes(normalized).length > 0;
+}
+
+function dateNeighbor(phrases: string[], index: number, rules: Rule[], now: Date): number | null {
+  for (const step of [1, -1]) {
+    const near = index + step;
+    if (near < 0 || near >= phrases.length) continue;
+    const nearText = phrases[near];
+    if (!hasKeyword(nearText, rules) && hasWhen(nearText, now)) return near;
+    const far = index + step * 2;
+    if (far < 0 || far >= phrases.length) continue;
+    const bridge = normalize(nearText);
+    const filler = bridge.length > 0 && bridge.length <= 24 && !hasKeyword(nearText, rules) && !hasWhen(nearText, now);
+    if (filler && !hasKeyword(phrases[far], rules) && hasWhen(phrases[far], now)) return far;
+  }
+  return null;
+}
+
+export function borrowPhrases(phrases: string[], rules: Rule[], now: Date, client: string): string[] {
+  const extra: string[] = [];
+  for (let index = 0; index < phrases.length; index += 1) {
+    const current = phrases[index];
+    if (!current || extract(current, rules, now, client)) continue;
+    const own = matchType(normalize(current), rules);
+    if (!own) continue;
+    const neighbor = dateNeighbor(phrases, index, rules, now);
+    if (neighbor === null) continue;
+    const joined = neighbor < index ? `${phrases[neighbor]} ${current}` : `${current} ${phrases[neighbor]}`;
+    const hit = extract(joined, rules, now, client);
+    if (hit && hit.type === own.rule.type) extra.push(joined);
+  }
+  return extra;
 }

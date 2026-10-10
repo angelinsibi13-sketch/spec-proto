@@ -31,7 +31,7 @@ python3 -m venv /tmp/whisper-venv
 /tmp/whisper-venv/bin/pip install faster-whisper
 ```
 
-Модель `small` скачается при первой загрузке файла. Другой интерпретатор можно указать через `WHISPER_PYTHON`.
+Модель `large-v3` скачается при первой загрузке файла и занимает около 3 ГБ. Другой интерпретатор можно указать через `WHISPER_PYTHON`, другую модель — через `WHISPER_MODEL`.
 
 Проверка эталона фраз:
 
