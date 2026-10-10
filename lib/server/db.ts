@@ -2,7 +2,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { blankVault } from "@/lib/machine";
-import type { Vault } from "@/lib/types";
+import { packReminder, reminderItems } from "@/lib/reminders";
+import type { Reminder, Vault } from "@/lib/types";
 
 const directory = path.join(process.cwd(), "data");
 const vaultPath = path.join(directory, "vault.bin");
@@ -27,6 +28,13 @@ export function readVault(): Vault {
     const parsed = JSON.parse(json) as Vault;
     if (!Array.isArray(parsed.audit)) parsed.audit = [];
     if (!parsed.reminders || typeof parsed.reminders !== "object") parsed.reminders = {};
+    const reminders: Record<string, Reminder> = {};
+    for (const event of parsed.events ?? []) {
+      const raw = parsed.reminders[event.id];
+      if (!raw) continue;
+      reminders[event.id] = packReminder(reminderItems(raw, event));
+    }
+    parsed.reminders = reminders;
     return parsed;
   } catch {
     return blankVault();

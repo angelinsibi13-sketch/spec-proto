@@ -89,10 +89,20 @@ export type CalEvent = {
 
 export type ReminderMode = "day" | "hour" | "custom";
 
+export type ReminderKind = "at" | "ten" | "hour" | "day" | "custom";
+
+export type ReminderItem = {
+  id: string;
+  kind: ReminderKind;
+  date: string;
+  at: string;
+};
+
 export type Reminder = {
   mode: ReminderMode;
   custom: string;
   at?: string;
+  items: ReminderItem[];
 };
 
 export type AuditEntry = {
