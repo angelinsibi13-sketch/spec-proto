@@ -22,11 +22,12 @@ import {
   type AgreementPatch,
 } from "@/lib/machine";
 import type { AgreementType, Direction, Priority, Vault } from "@/lib/types";
-import { mkdirSync, renameSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { readVault, vaultFile, writeVault } from "@/lib/server/db";
 import { listTraces, pushTrace } from "@/lib/server/trace";
-import { transcribeFile, whisperReady, type TranscriptSegment } from "@/lib/server/transcribe";
+import { syncRecordings } from "@/lib/server/recording-sync";
+import { whisperReady, type TranscriptSegment } from "@/lib/server/transcribe";
 
 export { ROUTES } from "@/lib/routes";
 
@@ -38,15 +39,27 @@ function mutate(method: string, path: string, summary: string, change: (vault: V
   return { state: next, trace, file: vaultFile() };
 }
 
-export function getState() {
+export async function getState() {
   const catalog = ensureCatalog(readVault());
   const scripted = ensureOlegTranscript(catalog.vault);
-  if (catalog.changed || scripted.changed) writeVault(scripted.vault);
-  return { state: scripted.vault, file: vaultFile() };
+  const synced = await syncRecordings(scripted.vault);
+  if (catalog.changed || scripted.changed || synced.changed) writeVault(synced.vault);
+  return { state: synced.vault, file: vaultFile() };
 }
 
-export function acceptConsent() {
-  return mutate("POST", "/api/consent", "Согласие Алексея записано", () => createSeedVault());
+export async function acceptConsent() {
+  const started = Date.now();
+  const seeded = ensureOlegTranscript(createSeedVault()).vault;
+  const synced = await syncRecordings(seeded);
+  writeVault(synced.vault);
+  const trace = pushTrace({
+    method: "POST",
+    path: "/api/consent",
+    status: 200,
+    ms: Date.now() - started,
+    summary: "Согласие Алексея записано",
+  });
+  return { state: synced.vault, trace, file: vaultFile() };
 }
 
 export function uploadRecording(input: {
@@ -54,7 +67,7 @@ export function uploadRecording(input: {
   company: string;
   segments: TranscriptSegment[];
   sourcePath: string;
-  ext: ".mp3" | ".wav";
+  ext: ".wav";
 }) {
   const current = readVault();
   if (!current.consentAt) {
@@ -64,7 +77,9 @@ export function uploadRecording(input: {
   const { vault, created, callId } = ingestRecording(current, input);
   const directory = path.join(process.cwd(), "data", "recordings");
   mkdirSync(directory, { recursive: true });
-  renameSync(input.sourcePath, path.join(directory, `${callId}${input.ext}`));
+  const stored = path.join(directory, `${callId}${input.ext}`);
+  copyFileSync(input.sourcePath, stored);
+  rmSync(input.sourcePath, { force: true });
   const saved = {
     ...vault,
     calls: vault.calls.map((call) =>
@@ -88,7 +103,7 @@ export function uploadRecording(input: {
   };
 }
 
-export { whisperReady, transcribeFile };
+export { whisperReady };
 
 export function openCall(direction: Direction) {
   return mutate("POST", "/api/calls", direction === "in" ? "Входящий" : "Исходящий", (vault) => {

@@ -95,6 +95,11 @@ export function CallScreen() {
             ) : (
               <p className="text-sm text-[#626c77]">Файла записи для этого разговора нет.</p>
             )}
+            {related.some((item) => item.transcriptNote) ? (
+              <p className="mt-2 text-sm text-[#d1002b]">
+                {related.find((item) => item.transcriptNote)?.transcriptNote}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-3">
           {lines.length === 0 ? (
@@ -114,7 +119,7 @@ export function CallScreen() {
             related.flatMap((item) => {
               const stamps = lineStamps(item.lines, item.direction);
               return item.lines.map((line) => {
-                const stamp = stamps.get(line.id);
+                const stamp = line.atMs ?? stamps.get(line.id);
                 const mine = line.speaker === "agent";
                 return (
                   <div key={line.id} className={mine ? "flex justify-start" : "flex justify-end"}>

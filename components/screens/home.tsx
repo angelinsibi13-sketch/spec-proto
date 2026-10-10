@@ -2,6 +2,7 @@
 
 import { Bell, LockKeyhole, Search } from "lucide-react";
 import { PageTitle, PriorityPill, Screen, Surface, TypePill } from "@/components/bits";
+import { RecordingCard } from "@/components/screens/recording";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clockOf, formatWhen } from "@/lib/dates";
@@ -45,6 +46,7 @@ function contactCards(calls: Call[], tasks: Task[]) {
       callId: chosen.id,
       tasks: open,
       audio: recordingFor(client, group),
+      note: group.find((call) => call.transcriptNote)?.transcriptNote ?? "",
     };
   });
 }
@@ -109,8 +111,10 @@ export function HomeScreen() {
       <p className="mb-2 text-sm text-[#626c77]">{today.charAt(0).toUpperCase() + today.slice(1)}</p>
       <PageTitle
         title="Добрый день, Алексей"
-        text="Карточки клиентов, записи разговоров и задачи, которые из них получились."
+        text="Карточки клиентов, записи разговоров и задачи, которые из них получились. Новая или заменённая запись разбирается сама."
       />
+
+      <RecordingCard />
 
       <h2 className="font-heading mb-3 text-lg font-semibold">Клиенты</h2>
       <div className="relative mb-3">
@@ -161,6 +165,7 @@ export function HomeScreen() {
                 ) : (
                   <p className="mt-3 text-xs text-[#626c77]">Файла записи для этой карточки нет.</p>
                 )}
+                {card.note ? <p className="mt-2 text-sm text-[#d1002b]">{card.note}</p> : null}
                 <p className="mt-3 text-xs font-medium text-[#626c77]">Задачи, которые надо выполнить</p>
                 {card.tasks.length === 0 ? (
                   <p className="mt-1 text-sm text-[#626c77]">Открытых задач нет.</p>

@@ -1,7 +1,7 @@
 export const ROUTES = [
   { method: "GET", path: "/api/state", does: "Отдаёт состояние: звонки, задачи, календарь, журнал доступа" },
   { method: "POST", path: "/api/consent", does: "Фиксирует согласие Алексея и создаёт стартовые сделки" },
-  { method: "POST", path: "/api/recordings", does: "Принимает WAV или MP3, распознаёт речь локально и создаёт задачи" },
+  { method: "POST", path: "/api/recordings", does: "Принимает аудио, распознаёт речь и голоса локально и создаёт задачи" },
   { method: "POST", path: "/api/calls/:id/lines", does: "Принимает реплику, вызывает extract() и создаёт задачу с событием" },
   { method: "POST", path: "/api/calls/:id/finish", does: "Закрывает звонок и собирает резюме клиенту" },
   { method: "POST", path: "/api/calls/:id/summary", does: "Отмечает, что резюме отдано клиенту" },

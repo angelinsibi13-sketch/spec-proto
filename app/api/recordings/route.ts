@@ -6,16 +6,17 @@ import { uploadRecording } from "@/lib/server/api";
 import { transcribeFile, whisperReady } from "@/lib/server/transcribe";
 
 const limit = 20 * 1024 * 1024;
+const AUDIO = /\.(mp3|wav|ogg|opus|m4a|webm|aac)$/i;
 
 export async function POST(request: Request) {
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "Нужен файл WAV или MP3" }, { status: 400 });
+    return NextResponse.json({ error: "Нужен аудиофайл" }, { status: 400 });
   }
-  const filename = file.name.toLowerCase();
-  const ext = filename.endsWith(".mp3") ? ".mp3" : filename.endsWith(".wav") ? ".wav" : "";
-  if (!ext) return NextResponse.json({ error: "Подойдёт только WAV или MP3" }, { status: 400 });
+  if (!AUDIO.test(file.name.toLowerCase())) {
+    return NextResponse.json({ error: "Подойдёт WAV, MP3, OGG, M4A или WebM" }, { status: 400 });
+  }
   if (file.size < 1000 || file.size > limit) {
     return NextResponse.json({ error: "Файл пустой или больше 20 МБ" }, { status: 400 });
   }
@@ -28,27 +29,38 @@ export async function POST(request: Request) {
 
   const directory = path.join(process.cwd(), "data", "inbox");
   mkdirSync(directory, { recursive: true });
-  const audioPath = path.join(directory, `${randomBytes(8).toString("hex")}${ext}`);
+  const audioPath = path.join(directory, `${randomBytes(8).toString("hex")}${path.extname(file.name).toLowerCase()}`);
   writeFileSync(audioPath, Buffer.from(await file.arrayBuffer()));
+  let wavPath = "";
 
   try {
-    const segments = await transcribeFile(audioPath);
-    if (segments.length === 0) {
+    const transcribed = await transcribeFile(audioPath);
+    wavPath = transcribed.wavPath;
+    if (transcribed.segments.length === 0) {
       return NextResponse.json({ error: "В записи не нашлось речи" }, { status: 422 });
     }
     const client = String(form?.get("client") ?? "");
     const company = String(form?.get("company") ?? "");
-    const result = uploadRecording({ client, company, segments, sourcePath: audioPath, ext });
+    const result = uploadRecording({
+      client,
+      company,
+      segments: transcribed.segments,
+      sourcePath: wavPath,
+      ext: ".wav",
+    });
+    wavPath = "";
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
     return NextResponse.json(result);
-  } catch {
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : "";
     return NextResponse.json(
-      { error: "Не удалось распознать запись на этом компьютере. Аудио никуда не отправлялось." },
+      { error: detail || "Не удалось распознать запись на этом компьютере. Аудио никуда не отправлялось." },
       { status: 500 },
     );
   } finally {
     rmSync(audioPath, { force: true });
+    if (wavPath) rmSync(wavPath, { force: true });
   }
 }

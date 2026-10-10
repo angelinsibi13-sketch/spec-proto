@@ -4,5 +4,5 @@ import { getState } from "@/lib/server/api";
 
 export async function GET() {
   await connection();
-  return NextResponse.json(getState());
+  return NextResponse.json(await getState());
 }
