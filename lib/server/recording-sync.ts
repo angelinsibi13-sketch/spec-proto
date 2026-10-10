@@ -81,7 +81,7 @@ function readCache(hash: string): TranscriptSegment[] | null {
   if (!existsSync(file)) return null;
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as { v?: number; segments?: TranscriptSegment[] };
-    if (parsed.v !== 2 || !Array.isArray(parsed.segments)) return null;
+    if (parsed.v !== 3 || !Array.isArray(parsed.segments)) return null;
     return parsed.segments;
   } catch {
     return null;
@@ -91,7 +91,7 @@ function readCache(hash: string): TranscriptSegment[] | null {
 function writeCache(hash: string, segments: TranscriptSegment[]) {
   const file = cachePath(hash);
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ v: 2, segments }));
+  writeFileSync(file, JSON.stringify({ v: 3, segments }));
 }
 
 function findCall(vault: Vault, file: Found, client: string, known: boolean) {

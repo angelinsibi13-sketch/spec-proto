@@ -1,6 +1,7 @@
 import { ACCURACY_NOW, contextHits, rehearsalHits, scoreAccuracy } from "./accuracy";
 import { defaultRules } from "./catalog";
 import { extract } from "./extract";
+import { labelSpeakers } from "./speakers";
 
 const score = scoreAccuracy();
 const misses = score.rows.filter((row) => !row.ok);
@@ -40,6 +41,21 @@ const contextOk =
 if (!contextOk) {
   console.log("CONTEXT", JSON.stringify(context));
 }
-if (score.ratio < 0.9 || falseHits.length > 0 || kinds !== expected || !contextOk) {
+const dialogue = labelSpeakers(
+  [
+    { text: "Добрый день", start: 0, end: 0.8, voice: 0, pitch: 120 },
+    { text: "Здравствуйте", start: 1.1, end: 1.8, voice: 1, pitch: 230 },
+    { text: "Алексей на связи", start: 2.2, end: 3, voice: 1, pitch: 230 },
+    { text: "до пятницы", start: 3.1, end: 3.6, voice: null, pitch: null },
+    { text: "Хорошо", start: 6, end: 6.4, voice: null, pitch: null },
+  ],
+  "Ирина Павлова",
+);
+const speakersOk =
+  dialogue.map((line) => line.speaker).join(",") === "agent,client,agent,agent,client" &&
+  dialogue[0].name === "Алексей Морозов" &&
+  dialogue[1].name === "Ирина Павлова";
+if (!speakersOk) console.log("SPEAKERS", JSON.stringify(dialogue));
+if (score.ratio < 0.9 || falseHits.length > 0 || kinds !== expected || !contextOk || !speakersOk) {
   process.exit(1);
 }

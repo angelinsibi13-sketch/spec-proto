@@ -13,6 +13,7 @@ export type TranscriptSegment = {
   end: number;
   text: string;
   pitch?: number | null;
+  voice?: number | null;
 };
 
 export function whisperReady(): boolean {
@@ -78,7 +79,7 @@ function whisper(wavPath: string, vad: boolean): Promise<TranscriptSegment[]> {
       env: {
         ...process.env,
         HF_HOME: process.env.HF_HOME ?? "/tmp/hf-cache",
-        WHISPER_MODEL: process.env.WHISPER_MODEL ?? "small",
+        WHISPER_MODEL: process.env.WHISPER_MODEL ?? "medium",
         WHISPER_BEAM: process.env.WHISPER_BEAM ?? "5",
         WHISPER_VAD: vad ? "1" : "0",
         PYTHONUNBUFFERED: "1",
@@ -89,7 +90,7 @@ function whisper(wavPath: string, vad: boolean): Promise<TranscriptSegment[]> {
     const timer = setTimeout(() => {
       proc.kill("SIGKILL");
       reject(new Error("Распознавание заняло слишком много времени"));
-    }, 600_000);
+    }, 900_000);
     proc.stdout.on("data", (chunk: Buffer) => out.push(chunk));
     proc.stderr.on("data", (chunk: Buffer) => {
       error += chunk.toString();
