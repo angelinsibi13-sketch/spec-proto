@@ -20,6 +20,7 @@ export type Line = {
   name: string;
   text: string;
   fromScript: boolean;
+  atMs?: number;
 };
 
 export type Call = {
@@ -37,6 +38,9 @@ export type Call = {
   origin: Origin;
   counterpartyNotified: boolean;
   audio?: string;
+  audioSha?: string;
+  sourceFile?: string;
+  transcriptNote?: string;
 };
 
 export type Agreement = {

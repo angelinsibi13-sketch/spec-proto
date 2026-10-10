@@ -32,7 +32,7 @@ export function RecordingCard() {
     <Surface className="mb-4">
       <p className="text-sm font-medium">Запись звонка</p>
       <p className="mt-1 text-sm leading-relaxed text-[#626c77]">
-        Загрузите готовый WAV или MP3. Речь распознаётся на этом компьютере и никуда не отправляется. Точность заранее не гарантируется: сверьте текст, прежде чем опираться на задачу.
+        Загрузите WAV, MP3, OGG или M4A — или положите файл в папку записей. Речь и разные голоса разбираются на этом компьютере и сохраняются в карточке. Точность заранее не гарантируется: сверьте текст, прежде чем опираться на задачу.
       </p>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div>
@@ -50,7 +50,7 @@ export function RecordingCard() {
           id="rec-file"
           className="mt-1.5 h-10"
           type="file"
-          accept="audio/wav,audio/mpeg,.wav,.mp3"
+          accept="audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/webm,.wav,.mp3,.ogg,.opus,.m4a,.webm,.aac"
           onChange={(event) => {
             setFile(event.target.files?.[0] ?? null);
             setError("");
@@ -97,6 +97,7 @@ export function RecordingCard() {
           <ul className="mt-2 space-y-1">
             {latest.lines.map((line) => (
               <li key={line.id} className="text-sm leading-relaxed">
+                <span className="text-[#626c77]">{line.name}: </span>
                 {line.text}
               </li>
             ))}

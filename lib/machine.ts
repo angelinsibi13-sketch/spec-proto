@@ -4,6 +4,7 @@ import { IN_CALL, IN_SCRIPT, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-sc
 import { dedupeKey, extract } from "@/lib/extract";
 import { buildSummary } from "@/lib/hints";
 import { packReminder } from "@/lib/reminders";
+import { labelSpeakers, type SpeechSegment } from "@/lib/speakers";
 import type {
   Agreement,
   AgreementType,
@@ -116,9 +117,56 @@ function splitPhrases(text: string): string[] {
   return pieces.length > 0 ? pieces : [text.trim()].filter(Boolean);
 }
 
+function stripDerived(vault: Vault, callId: string): Vault {
+  const eventIds = new Set(vault.events.filter((event) => event.callId === callId).map((event) => event.id));
+  const reminders = { ...vault.reminders };
+  for (const id of eventIds) delete reminders[id];
+  return {
+    ...vault,
+    agreements: vault.agreements.filter((item) => item.callId !== callId),
+    tasks: vault.tasks.filter((item) => item.callId !== callId),
+    events: vault.events.filter((item) => item.callId !== callId),
+    reminders,
+  };
+}
+
+function speakInto(vault: Vault, call: Call, segments: SpeechSegment[], origin: Origin, now: Date): Vault {
+  const labeled = labelSpeakers(segments, call.client);
+  let next = vault;
+  for (const piece of labeled) {
+    for (const phrase of splitPhrases(piece.text)) {
+      const line = {
+        id: uid("line"),
+        speaker: piece.speaker,
+        name: piece.name,
+        text: phrase,
+        fromScript: false,
+        atMs: Math.round(piece.start * 1000),
+      };
+      next = {
+        ...next,
+        calls: next.calls.map((item) =>
+          item.id === call.id
+            ? {
+                ...item,
+                lines: [...item.lines, line],
+                counterpartyNotified:
+                  item.counterpartyNotified ||
+                  (piece.speaker === "client" && partyAgrees(phrase.toLowerCase())),
+              }
+            : item,
+        ),
+      };
+      const current = next.calls.find((item) => item.id === call.id) ?? call;
+      next = record(next, current, phrase, now, origin);
+    }
+  }
+  return next;
+}
+
 export function ingestRecording(
   vault: Vault,
-  input: { client: string; company: string; segments: { text: string }[] },
+  input: { client: string; company: string; segments: SpeechSegment[] },
   now = new Date(),
 ): { vault: Vault; created: number; callId: string } {
   const client = input.client.trim() || "Клиент с записи";
@@ -136,27 +184,11 @@ export function ingestRecording(
     summary: null,
     summarySent: false,
     origin: "upload",
-    counterpartyNotified: true,
+    counterpartyNotified: false,
   };
-  let next: Vault = { ...vault, calls: [...vault.calls, call] };
-  const before = next.agreements.length;
-  const phrases = input.segments.flatMap((segment) => splitPhrases(segment.text));
-  for (const phrase of phrases) {
-    const line = {
-      id: uid("line"),
-      speaker: "client" as const,
-      name: client,
-      text: phrase,
-      fromScript: false,
-    };
-    next = {
-      ...next,
-      calls: next.calls.map((item) =>
-        item.id === call.id ? { ...item, lines: [...item.lines, line] } : item,
-      ),
-    };
-    next = record(next, call, phrase, now, "upload");
-  }
+  const seeded: Vault = { ...vault, calls: [...vault.calls, call] };
+  const before = seeded.agreements.length;
+  let next = speakInto(seeded, call, input.segments, "upload", now);
   next = {
     ...next,
     calls: next.calls.map((item) =>
@@ -167,6 +199,98 @@ export function ingestRecording(
     vault: audit(next, "Запись разобрана", `${client}, новых задач ${next.agreements.length - before}`, now),
     created: next.agreements.length - before,
     callId: call.id,
+  };
+}
+
+export function applyRecordingTranscript(
+  vault: Vault,
+  input: {
+    client: string;
+    company: string;
+    role: string;
+    phone: string;
+    audio: string;
+    audioSha: string;
+    sourceFile: string;
+    known: boolean;
+    segments: SpeechSegment[];
+  },
+  now = new Date(),
+): Vault {
+  const client = input.client.trim() || "Клиент с записи";
+  const existing =
+    vault.calls.find(
+      (call) =>
+        call.origin !== "demo" &&
+        (call.sourceFile === input.sourceFile || Boolean(call.audio?.endsWith(`/${input.sourceFile}`))),
+    ) ??
+    (input.known
+      ? vault.calls.find((call) => call.origin !== "demo" && call.client === client)
+      : undefined);
+  const callId = existing?.id ?? uid("rec");
+  const origin: Origin = existing?.origin ?? "upload";
+  const cleared = existing ? stripDerived(vault, callId) : vault;
+  const call: Call = {
+    id: callId,
+    direction: existing?.direction ?? "in",
+    client: existing?.client || client,
+    company: existing?.company || input.company.trim() || "Запись",
+    role: existing?.role || input.role || "запись",
+    phone: existing?.phone || input.phone || "",
+    startedAt: existing?.startedAt ?? now.toISOString(),
+    endedAt: now.toISOString(),
+    lines: [],
+    summary: null,
+    summarySent: false,
+    origin,
+    counterpartyNotified: false,
+    audio: input.audio,
+    audioSha: input.audioSha,
+    sourceFile: input.sourceFile,
+  };
+  const seeded: Vault = existing
+    ? { ...cleared, calls: cleared.calls.map((item) => (item.id === callId ? call : item)) }
+    : { ...cleared, calls: [...cleared.calls, call] };
+  const before = seeded.agreements.length;
+  const next = speakInto(seeded, call, input.segments, origin, now);
+  return audit(
+    next,
+    "Запись разобрана",
+    `${call.client}, новых задач ${next.agreements.length - before}`,
+    now,
+  );
+}
+
+export function markRecording(
+  vault: Vault,
+  input: { sourceFile: string; audioSha: string; client: string; known: boolean; note?: string },
+): { vault: Vault; changed: boolean } {
+  const existing =
+    vault.calls.find(
+      (call) =>
+        call.origin !== "demo" &&
+        (call.sourceFile === input.sourceFile || Boolean(call.audio?.endsWith(`/${input.sourceFile}`))),
+    ) ??
+    (input.known ? vault.calls.find((call) => call.origin !== "demo" && call.client === input.client) : undefined);
+  if (!existing) return { vault, changed: false };
+  if (existing.audioSha === input.audioSha && existing.transcriptNote === input.note && existing.sourceFile === input.sourceFile) {
+    return { vault, changed: false };
+  }
+  return {
+    changed: true,
+    vault: {
+      ...vault,
+      calls: vault.calls.map((call) =>
+        call.id === existing.id
+          ? {
+              ...call,
+              audioSha: input.audioSha,
+              sourceFile: input.sourceFile,
+              transcriptNote: input.note,
+            }
+          : call,
+      ),
+    },
   };
 }
 
