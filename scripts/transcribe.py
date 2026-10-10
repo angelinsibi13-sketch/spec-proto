@@ -64,27 +64,40 @@ def main() -> None:
     if len(sys.argv) != 2:
         print("usage: transcribe.py AUDIO", file=sys.stderr)
         sys.exit(2)
-    model_name = os.environ.get("WHISPER_MODEL", "medium")
+    model_name = os.environ.get("WHISPER_MODEL", "large-v3")
     vad = os.environ.get("WHISPER_VAD", "1") != "0"
     beam = int(os.environ.get("WHISPER_BEAM", "5"))
     hotwords = os.environ.get(
         "WHISPER_HOTWORDS",
         "коммерческое предложение, КП, созвон, встреча, договор, оплата, счёт, перезвон, документы, подпись",
     )
+    prompt = os.environ.get(
+        "WHISPER_PROMPT",
+        "Телефонный разговор. Алексей: Добрый день, я отправлю коммерческое предложение до пятницы. Клиент: Хорошо, давайте созвон в понедельник в 11.",
+    )
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
     options = {
         "language": "ru",
         "vad_filter": vad,
         "beam_size": beam,
+        "patience": 1,
         "word_timestamps": True,
-        "condition_on_previous_text": True,
+        "condition_on_previous_text": False,
         "hotwords": hotwords,
+        "initial_prompt": prompt,
+        "hallucination_silence_threshold": 2,
+        "compression_ratio_threshold": 2.2,
+        "no_speech_threshold": 0.45,
     }
-    try:
-        segments, _info = model.transcribe(sys.argv[1], **options)
-    except TypeError:
-        options.pop("hotwords", None)
-        segments, _info = model.transcribe(sys.argv[1], **options)
+    optional = ["hallucination_silence_threshold", "patience", "hotwords", "initial_prompt"]
+    while True:
+        try:
+            segments, _info = model.transcribe(sys.argv[1], **options)
+            break
+        except TypeError:
+            if not optional:
+                raise
+            options.pop(optional.pop(0), None)
     samples, rate = load_wav(sys.argv[1])
     json.dump(diarize(utterances(segments), samples, rate), sys.stdout, ensure_ascii=False)
 

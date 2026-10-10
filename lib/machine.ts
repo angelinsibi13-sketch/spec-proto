@@ -21,7 +21,7 @@ import type {
   Vault,
 } from "@/lib/types";
 
-export const TRANSCRIPT_ENGINE = 4;
+export const TRANSCRIPT_ENGINE = 5;
 
 function uid(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
