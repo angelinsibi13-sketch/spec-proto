@@ -2,7 +2,7 @@ export type AgreementType = "kp" | "meeting" | "payment" | "callback" | "docs";
 
 export type Priority = "high" | "medium" | "low";
 
-export type Origin = "seed" | "demo" | "upload";
+export type Origin = "seed" | "demo" | "upload" | "manual";
 
 export type Direction = "in" | "out";
 
@@ -92,6 +92,7 @@ export type ReminderMode = "day" | "hour" | "custom";
 export type Reminder = {
   mode: ReminderMode;
   custom: string;
+  at?: string;
 };
 
 export type AuditEntry = {

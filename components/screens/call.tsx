@@ -84,14 +84,19 @@ export function CallScreen() {
           {phone ? ` · ${phone}` : ""}
           {call.role ? ` · ${call.role}` : ""}
         </p>
-        <p className="mt-2 text-sm leading-relaxed text-[#626c77]">Расшифровка разговора.</p>
-        {recording ? (
-          <audio controls preload="metadata" src={recording} className="mt-3 h-10 w-full max-w-md" />
-        ) : null}
       </header>
 
       <div className="md:grid md:min-h-0 md:flex-1 md:grid-cols-[minmax(0,1fr)_320px]">
-        <div ref={scroller} className="space-y-3 px-4 py-4 md:min-h-0 md:overflow-y-auto md:px-6">
+        <div ref={scroller} className="px-4 py-4 md:min-h-0 md:overflow-y-auto md:px-6">
+          <div className="sticky top-0 z-10 -mx-4 mb-3 border-b border-[#1d2023]/8 bg-[#f6f7f9] px-4 pt-1 pb-3 md:-mx-6 md:px-6">
+            <p className="mb-2 text-xs font-medium text-[#626c77]">Полная запись звонка</p>
+            {recording ? (
+              <audio controls preload="metadata" src={recording} className="h-10 w-full" />
+            ) : (
+              <p className="text-sm text-[#626c77]">Файла записи для этого разговора нет.</p>
+            )}
+          </div>
+          <div className="space-y-3">
           {lines.length === 0 ? (
             agreements.length === 0 ? (
               <p className="text-sm text-[#626c77]">В этой записи нет реплик.</p>
@@ -131,6 +136,7 @@ export function CallScreen() {
               });
             })
           )}
+          </div>
         </div>
 
         <aside className="border-t border-[#1d2023]/8 bg-white px-4 py-4 md:min-h-0 md:overflow-y-auto md:border-t-0 md:border-l">

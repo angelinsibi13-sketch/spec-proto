@@ -19,6 +19,15 @@ export function todayIso(now = new Date()): string {
   return iso(now);
 }
 
+export function clockOf(reminder: { at?: string; custom?: string } | undefined): string | null {
+  const value = reminder?.at || reminder?.custom || "";
+  return /^\d{2}:\d{2}$/.test(value) ? value : null;
+}
+
+export function clockNow(now = new Date()): string {
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
 export function parseIso(value: string): Date {
   const [y, m, d] = value.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1);

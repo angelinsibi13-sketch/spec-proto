@@ -7,6 +7,9 @@ import {
   createSeedVault,
   editAgreement,
   endDemo,
+  addManualEvent,
+  ensureCatalog,
+  ensureOlegTranscript,
   removeAgreement,
   ingestRecording,
   markSummarySent,
@@ -18,7 +21,7 @@ import {
   updateRule,
   type AgreementPatch,
 } from "@/lib/machine";
-import type { AgreementType, Direction, Priority, ReminderMode, Vault } from "@/lib/types";
+import type { AgreementType, Direction, Priority, Vault } from "@/lib/types";
 import { mkdirSync, renameSync } from "node:fs";
 import path from "node:path";
 import { readVault, vaultFile, writeVault } from "@/lib/server/db";
@@ -36,7 +39,10 @@ function mutate(method: string, path: string, summary: string, change: (vault: V
 }
 
 export function getState() {
-  return { state: readVault(), file: vaultFile() };
+  const catalog = ensureCatalog(readVault());
+  const scripted = ensureOlegTranscript(catalog.vault);
+  if (catalog.changed || scripted.changed) writeVault(scripted.vault);
+  return { state: scripted.vault, file: vaultFile() };
 }
 
 export function acceptConsent() {
@@ -171,10 +177,14 @@ export function patchVoice(voice: boolean) {
   );
 }
 
-export function saveReminder(eventId: string, mode: ReminderMode, custom: string) {
+export function saveReminder(eventId: string, at: string) {
   return mutate("PATCH", `/api/events/${eventId}/reminder`, "Напоминание сохранено", (vault) =>
-    setReminder(vault, eventId, mode, custom),
+    setReminder(vault, eventId, at),
   );
+}
+
+export function createEvent(input: { title: string; due: string; time: string; remindAt: string; priority: Priority }) {
+  return mutate("POST", "/api/events", "Событие добавлено", (vault) => addManualEvent(vault, input));
 }
 
 export function viewTranscript(detail: string) {

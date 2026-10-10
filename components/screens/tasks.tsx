@@ -2,25 +2,29 @@
 
 import { Check } from "lucide-react";
 import { PageTitle, PriorityPill, Screen, Surface, TypePill } from "@/components/bits";
-import { formatMoney, formatWhen, isPastDue } from "@/lib/dates";
+import { formatLong, formatMoney, formatWhen, isPastDue } from "@/lib/dates";
 import { useFix } from "@/lib/store";
+import type { Priority, Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+const RANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+
+function byDateThenPriority(a: Task, b: Task): number {
+  return a.due.localeCompare(b.due) || RANK[a.priority] - RANK[b.priority] || a.title.localeCompare(b.title, "ru");
+}
 
 export function TasksScreen() {
   const { vault, toggleTask } = useFix();
   if (!vault) return null;
-  const tasks = [...vault.tasks].sort((a, b) => {
-    if (a.status !== b.status) return a.status === "open" ? -1 : 1;
-    return a.due.localeCompare(b.due);
-  });
-  const companies = [...new Set(tasks.map((task) => task.company))];
+  const tasks = [...vault.tasks].sort(byDateThenPriority);
+  const days = [...new Set(tasks.map((task) => task.due))];
 
   return (
     <Screen>
       <PageTitle
         eyebrow="CRM"
         title="Задачи по клиентам"
-        text="Каждая договорённость из звонка становится задачей. Отметьте выполнение, когда обещание закрыто."
+        text="Каждая договорённость из звонка становится задачей. Внутри одного дня выше стоят более срочные."
       />
       {tasks.length === 0 ? (
         <Surface>
@@ -30,12 +34,12 @@ export function TasksScreen() {
         </Surface>
       ) : (
         <div className="space-y-6">
-          {companies.map((company) => (
-            <section key={company}>
-              <h2 className="mb-2 text-sm font-medium text-[#626c77]">{company}</h2>
+          {days.map((day) => (
+            <section key={day}>
+              <h2 className="mb-2 text-sm font-medium capitalize text-[#626c77]">{formatLong(day)}</h2>
               <div className="space-y-2">
                 {tasks
-                  .filter((task) => task.company === company)
+                  .filter((task) => task.due === day)
                   .map((task) => {
                     const late = task.status === "open" && isPastDue(task.due);
                     return (
@@ -74,7 +78,7 @@ export function TasksScreen() {
                             {task.title}
                           </p>
                           <p className="mt-1 text-xs text-[#626c77]">
-                            {task.client} · {formatWhen(task.due, task.time)}
+                            {task.client} · {task.company} · {formatWhen(task.due, task.time)}
                             {formatMoney(task.amount) ? ` · ${formatMoney(task.amount)}` : ""}
                           </p>
                         </div>

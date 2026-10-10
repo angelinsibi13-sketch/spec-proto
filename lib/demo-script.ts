@@ -29,12 +29,18 @@ export const IN_CALL: DemoProfile = {
   phone: "+375 33 220-44-18",
 };
 
+const PHONES: [string, string][] = [
+  ["Олег", IN_CALL.phone],
+  ["Мария", OUT_CALL.phone],
+  ["Ирина", "+375 29 510-22-14"],
+  ["Сергей", "+375 33 118-40-77"],
+  ["Наталья", "+375 29 663-08-41"],
+];
+
 export function knownPhone(client: string, phone: string): string {
   const trimmed = phone.trim();
   if (trimmed) return trimmed;
-  if (client.includes("Олег")) return IN_CALL.phone;
-  if (client.includes("Мария")) return OUT_CALL.phone;
-  return "";
+  return PHONES.find(([name]) => client.includes(name))?.[1] ?? "";
 }
 
 export function profileFor(direction: Direction): DemoProfile {
@@ -49,9 +55,14 @@ export function recordingFor(
     .filter((call) => call.client === client && call.audio)
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   if (own[0]?.audio) return own[0].audio;
-  if (client.includes("Мария")) return "/recordings/maria.mp3";
-  if (client.includes("Олег")) return "/recordings/oleg.mp3";
-  return null;
+  const bundled: [string, string][] = [
+    ["Мария", "/recordings/maria.mp3"],
+    ["Олег", "/recordings/oleg.mp3"],
+    ["Ирина", "/recordings/irina.mp3"],
+    ["Сергей", "/recordings/sergey.mp3"],
+    ["Наталья", "/recordings/natalya.mp3"],
+  ];
+  return bundled.find(([name]) => client.includes(name))?.[1] ?? null;
 }
 
 export type ScriptLine = {

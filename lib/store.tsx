@@ -12,7 +12,7 @@ import {
 import { SCRIPT_TAIL_MS, scriptFor, type ScriptLine } from "@/lib/demo-script";
 import { activeDemo } from "@/lib/machine";
 import type { AgreementPatch } from "@/lib/machine";
-import type { AgreementType, Direction, ReminderMode, Rule, Vault, View } from "@/lib/types";
+import type { AgreementType, Direction, Priority, Rule, Vault, View } from "@/lib/types";
 
 type Playback = {
   running: boolean;
@@ -81,7 +81,8 @@ type Store = Session & {
   sendSummary: (callId: string) => void;
   viewTranscript: (detail: string) => void;
   openTranscript: (callId: string) => void;
-  saveReminder: (eventId: string, mode: ReminderMode, custom: string) => void;
+  saveReminder: (eventId: string, at: string) => void;
+  addEvent: (input: { title: string; due: string; time: string; remindAt: string; priority: Priority }) => void;
   uploadRecording: (file: File, client: string, company: string) => Promise<{ created: number; transcript: string }>;
   open: (view: View) => void;
   flash: (text: string) => void;
@@ -367,21 +368,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           adopt(await send("POST", "/api/audit", { detail }));
         });
       },
-      saveReminder: (eventId, mode, custom) => {
+      saveReminder: (eventId, at) => {
         setSession((prev) =>
           prev.vault
             ? {
                 ...prev,
                 vault: {
                   ...prev.vault,
-                  reminders: { ...(prev.vault.reminders ?? {}), [eventId]: { mode, custom: custom.trim() } },
+                  reminders: { ...(prev.vault.reminders ?? {}), [eventId]: { mode: "custom", custom: at, at } },
                 },
               }
             : prev,
         );
         enqueue(async () => {
-          adopt(await send("PATCH", `/api/events/${eventId}/reminder`, { mode, custom }));
-          flash(mode === "day" ? "Напоминание за день" : mode === "hour" ? "Напоминание за час" : "Напоминание сохранено");
+          adopt(await send("PATCH", `/api/events/${eventId}/reminder`, { at }));
+          flash(`Напоминание записано на ${at}`);
+        });
+      },
+      addEvent: (input) => {
+        enqueue(async () => {
+          adopt(await send("POST", "/api/events", input));
+          flash(`Событие добавлено, уведомление в ${input.remindAt}`);
         });
       },
       uploadRecording: (file, client, company) => {

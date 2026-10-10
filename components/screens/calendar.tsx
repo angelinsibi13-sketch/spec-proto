@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bell, ChevronLeft, ChevronRight, Download } from "lucide-react";
-import { PageTitle, Screen, Surface, TypePill } from "@/components/bits";
+import { Bell, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { addDays, clockOf, formatMoney, formatWhen, iso, parseIso, todayIso } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,11 +12,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { addDays, formatMoney, formatWhen, iso, parseIso, todayIso } from "@/lib/dates";
+import { PageTitle, Screen, Surface, TypePill } from "@/components/bits";
 import { downloadText, toIcs } from "@/lib/ics";
 import { useFix } from "@/lib/store";
-import type { CalEvent, Reminder, ReminderMode } from "@/lib/types";
+import type { CalEvent, Priority, Reminder } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const WEEK = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
@@ -32,19 +32,78 @@ function monthCells(anchor: Date): Date[] {
 }
 
 function reminderText(reminder: Reminder | undefined): string | null {
-  if (!reminder) return null;
-  if (reminder.mode === "day") return "Напоминание за день";
-  if (reminder.mode === "hour") return "Напоминание за час";
-  return reminder.custom ? `Напоминание: ${reminder.custom}` : null;
+  const at = clockOf(reminder);
+  return at ? `Уведомление в ${at}` : null;
+}
+
+function parseClock(value: string | null | undefined): { hours: number; minutes: number } {
+  const match = value?.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return { hours: 9, minutes: 0 };
+  return { hours: Number(match[1]), minutes: Number(match[2]) };
+}
+
+function clockLabel(hours: number, minutes: number): string {
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function Wheel({
+  label,
+  name,
+  value,
+  max,
+  onChange,
+}: {
+  label: string;
+  name?: string;
+  value: number;
+  max: number;
+  onChange: (next: number) => void;
+}) {
+  const span = max + 1;
+  const prev = (value - 1 + span) % span;
+  const next = (value + 1) % span;
+  const pad = (item: number) => String(item).padStart(2, "0");
+  const title = name ?? label;
+  return (
+    <div className="flex flex-1 flex-col items-center">
+      <p className="mb-1 text-xs text-[#626c77]">{label}</p>
+      <button
+        type="button"
+        aria-label={`${title}: меньше`}
+        className="flex flex-col items-center text-[#626c77]"
+        onClick={() => onChange(prev)}
+      >
+        <ChevronUp className="size-4" />
+        <span className="text-sm tabular-nums">{pad(prev)}</span>
+      </button>
+      <p className="font-heading my-1 text-3xl font-semibold tabular-nums text-[#1d2023]">{pad(value)}</p>
+      <button
+        type="button"
+        aria-label={`${title}: больше`}
+        className="flex flex-col items-center text-[#626c77]"
+        onClick={() => onChange(next)}
+      >
+        <span className="text-sm tabular-nums">{pad(next)}</span>
+        <ChevronDown className="size-4" />
+      </button>
+    </div>
+  );
 }
 
 export function CalendarScreen() {
-  const { vault, saveReminder } = useFix();
+  const { vault, saveReminder, addEvent } = useFix();
   const [anchor, setAnchor] = useState(() => new Date());
   const [selected, setSelected] = useState(todayIso());
   const [reminderFor, setReminderFor] = useState<string | null>(null);
-  const [mode, setMode] = useState<ReminderMode>("day");
-  const [custom, setCustom] = useState("");
+  const [hours, setHours] = useState(9);
+  const [minutes, setMinutes] = useState(0);
+  const [adding, setAdding] = useState(false);
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventHours, setEventHours] = useState(10);
+  const [eventMinutes, setEventMinutes] = useState(0);
+  const [remindHours, setRemindHours] = useState(9);
+  const [remindMinutes, setRemindMinutes] = useState(30);
+  const [priority, setPriority] = useState<Priority>("medium");
   const events = vault?.events;
 
   const byDay = useMemo(() => {
@@ -185,9 +244,14 @@ export function CalendarScreen() {
       </div>
 
       <div className="mt-4">
-        <h3 className="mb-2 text-sm font-medium capitalize text-[#626c77]">
-          {parseIso(selected).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })}
-        </h3>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-medium capitalize text-[#626c77]">
+            {parseIso(selected).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })}
+          </h3>
+          <Button variant="outline" className="h-9" onClick={() => setAdding(true)}>
+            Добавить событие
+          </Button>
+        </div>
         {chosen.length === 0 ? (
           <Surface>
             <p className="text-sm text-[#626c77]">На этот день событий нет.</p>
@@ -223,9 +287,9 @@ export function CalendarScreen() {
                       className="size-9 shrink-0"
                       aria-label={`Напоминание: ${event.title}`}
                       onClick={() => {
-                        const current = reminders[event.id];
-                        setMode(current?.mode ?? "day");
-                        setCustom(current?.custom ?? "");
+                        const current = parseClock(clockOf(reminders[event.id]) ?? event.time);
+                        setHours(current.hours);
+                        setMinutes(current.minutes);
                         setReminderFor(event.id);
                       }}
                     >
@@ -244,46 +308,90 @@ export function CalendarScreen() {
           <DialogHeader>
             <DialogTitle>Напоминание{reminderEvent ? ` · ${reminderEvent.title}` : ""}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 text-sm">
-            {(
-              [
-                ["day", "За день"],
-                ["hour", "За час"],
-                ["custom", "Своя настройка"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="reminder-mode"
-                  checked={mode === value}
-                  onChange={() => setMode(value)}
-                  className="accent-[#ff0032]"
-                />
-                {label}
-              </label>
-            ))}
-            {mode === "custom" ? (
-              <Input
-                value={custom}
-                onChange={(event) => setCustom(event.target.value)}
-                placeholder="Например, за 30 минут"
-                className="h-10"
-                aria-label="Своя настройка напоминания"
-              />
-            ) : null}
+          <p className="text-sm text-[#626c77]">Уведомление придёт в это время в день события.</p>
+          <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
+            <Wheel label="Часы" value={hours} max={23} onChange={setHours} />
+            <Wheel label="Минуты" value={minutes} max={59} onChange={setMinutes} />
           </div>
           <DialogFooter>
             <Button
               className="h-10"
-              disabled={mode === "custom" && !custom.trim()}
               onClick={() => {
                 if (!reminderFor) return;
-                saveReminder(reminderFor, mode, custom);
+                const at = clockLabel(hours, minutes);
+                if (typeof Notification !== "undefined" && Notification.permission === "default") {
+                  void Notification.requestPermission();
+                }
+                saveReminder(reminderFor, at);
                 setReminderFor(null);
               }}
             >
               Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={adding} onOpenChange={setAdding}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Новое событие</DialogTitle>
+          </DialogHeader>
+          <label className="block text-sm" htmlFor="event-title">
+            Название
+            <Input id="event-title" value={eventTitle} onChange={(event) => setEventTitle(event.target.value)} className="mt-1.5 h-10" />
+          </label>
+          <p className="text-sm text-[#626c77]">Время события</p>
+          <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
+            <Wheel label="Часы" name="Время события, часы" value={eventHours} max={23} onChange={setEventHours} />
+            <Wheel label="Минуты" name="Время события, минуты" value={eventMinutes} max={59} onChange={setEventMinutes} />
+          </div>
+          <p className="text-sm text-[#626c77]">Время уведомления</p>
+          <div className="flex gap-4 rounded-2xl bg-[#f6f7f9] px-4 py-3">
+            <Wheel label="Часы" name="Уведомление, часы" value={remindHours} max={23} onChange={setRemindHours} />
+            <Wheel label="Минуты" name="Уведомление, минуты" value={remindMinutes} max={59} onChange={setRemindMinutes} />
+          </div>
+          <div className="flex gap-2">
+            {(
+              [
+                ["high", "Высокий"],
+                ["medium", "Средний"],
+                ["low", "Низкий"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPriority(value)}
+                className={cn(
+                  "h-9 flex-1 rounded-full text-xs",
+                  priority === value ? "bg-[#1d2023] text-white" : "bg-[#f6f7f9] text-[#626c77]",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button
+              className="h-10"
+              disabled={!eventTitle.trim()}
+              onClick={() => {
+                if (typeof Notification !== "undefined" && Notification.permission === "default") {
+                  void Notification.requestPermission();
+                }
+                addEvent({
+                  title: eventTitle.trim(),
+                  due: selected,
+                  time: clockLabel(eventHours, eventMinutes),
+                  remindAt: clockLabel(remindHours, remindMinutes),
+                  priority,
+                });
+                setEventTitle("");
+                setAdding(false);
+              }}
+            >
+              Добавить
             </Button>
           </DialogFooter>
         </DialogContent>

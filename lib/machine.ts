@@ -1,6 +1,6 @@
 import { defaultRules } from "@/lib/catalog";
 import { addDays, iso } from "@/lib/dates";
-import { IN_CALL, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-script";
+import { IN_CALL, IN_SCRIPT, MANAGER, OUT_CALL, profileFor } from "@/lib/demo-script";
 import { dedupeKey, extract } from "@/lib/extract";
 import { buildSummary } from "@/lib/hints";
 import type {
@@ -316,7 +316,258 @@ export function createSeedVault(now = new Date()): Vault {
     });
   }
 
+  for (const bundle of extraBundles(now)) pushBundle(base, bundle, now);
   return audit(base, "Хранилище создано", "Стартовые сделки Алексея", now);
+}
+
+type BundleTask = {
+  type: AgreementType;
+  title: string;
+  due: string;
+  time: string | null;
+  amount: number | null;
+  priority: Priority;
+  status: "open" | "done";
+  phrase: string;
+};
+
+type ClientBundle = {
+  client: string;
+  company: string;
+  role: string;
+  phone: string;
+  audio: string;
+  greeting: string;
+  tasks: BundleTask[];
+};
+
+function extraBundles(now: Date): ClientBundle[] {
+  const day = (offset: number) => iso(addDays(now, offset));
+  return [
+    {
+      client: "Ирина Павлова",
+      company: "«БелКанц»",
+      role: "закупки",
+      phone: "+375 29 510-22-14",
+      audio: "/recordings/irina.mp3",
+      greeting: "Ирина, это Алексей, поставка оргтехники. Разговор записывается, чтобы зафиксировать договорённости. Вы согласны?",
+      tasks: [
+        {
+          type: "kp",
+          title: "Отправить КП — Ирина Павлова",
+          due: day(4),
+          time: null,
+          amount: null,
+          priority: "high",
+          status: "open",
+          phrase: "Да, согласна. Пришлите коммерческое предложение до среды.",
+        },
+        {
+          type: "payment",
+          title: "Проконтролировать оплату — Ирина Павлова",
+          due: day(5),
+          time: null,
+          amount: 3400,
+          priority: "high",
+          status: "open",
+          phrase: "Счёт на 3 400 рублей оплатим в четверг.",
+        },
+        {
+          type: "docs",
+          title: "Отправить документы — Ирина Павлова",
+          due: day(6),
+          time: null,
+          amount: null,
+          priority: "medium",
+          status: "open",
+          phrase: "Договор на подпись пришлите в пятницу.",
+        },
+        {
+          type: "meeting",
+          title: "Созвон — Ирина Павлова",
+          due: day(5),
+          time: "11:00",
+          amount: null,
+          priority: "medium",
+          status: "open",
+          phrase: "Созвон в четверг в 11.",
+        },
+        {
+          type: "callback",
+          title: "Перезвонить — Ирина Павлова",
+          due: day(1),
+          time: "10:00",
+          amount: null,
+          priority: "high",
+          status: "open",
+          phrase: "Перезвоните завтра утром.",
+        },
+      ],
+    },
+    {
+      client: "Сергей Волчек",
+      company: "«Минск Принт»",
+      role: "сервис",
+      phone: "+375 33 118-40-77",
+      audio: "/recordings/sergey.mp3",
+      greeting: "Сергей, здравствуйте, Алексей на связи. Разговор записывается для фиксации договорённостей. Вы не против?",
+      tasks: [
+        {
+          type: "meeting",
+          title: "Встреча — Сергей Волчек",
+          due: day(2),
+          time: "10:00",
+          amount: null,
+          priority: "medium",
+          status: "open",
+          phrase: "Не против. Встреча в понедельник в 10.",
+        },
+        {
+          type: "kp",
+          title: "Отправить КП — Сергей Волчек",
+          due: day(4),
+          time: null,
+          amount: null,
+          priority: "high",
+          status: "open",
+          phrase: "Коммерческое предложение на принтеры до среды.",
+        },
+      ],
+    },
+    {
+      client: "Наталья Гриб",
+      company: "«Светлоторг»",
+      role: "снабжение",
+      phone: "+375 29 663-08-41",
+      audio: "/recordings/natalya.mp3",
+      greeting: "Наталья, это Алексей. Разговор записывается, чтобы не потерять договорённость. Вы согласны?",
+      tasks: [
+        {
+          type: "payment",
+          title: "Проконтролировать оплату — Наталья Гриб",
+          due: day(3),
+          time: null,
+          amount: 920,
+          priority: "medium",
+          status: "open",
+          phrase: "Да. Счёт на 920 рублей оплатим во вторник.",
+        },
+        {
+          type: "docs",
+          title: "Отправить документы — Наталья Гриб",
+          due: day(4),
+          time: null,
+          amount: null,
+          priority: "low",
+          status: "open",
+          phrase: "Документы пришлите до среды.",
+        },
+      ],
+    },
+  ];
+}
+
+function pushBundle(base: Vault, bundle: ClientBundle, now: Date) {
+  const callId = uid("seed-call");
+  base.calls.push({
+    id: callId,
+    direction: "out",
+    client: bundle.client,
+    company: bundle.company,
+    role: bundle.role,
+    phone: bundle.phone,
+    startedAt: now.toISOString(),
+    endedAt: now.toISOString(),
+    lines: [
+      {
+        id: uid("line"),
+        speaker: "agent",
+        name: MANAGER,
+        text: bundle.greeting,
+        fromScript: false,
+      },
+      ...bundle.tasks.map((item) => ({
+        id: uid("line"),
+        speaker: "client" as const,
+        name: bundle.client,
+        text: item.phrase,
+        fromScript: false,
+      })),
+    ],
+    summary: null,
+    summarySent: true,
+    origin: "seed",
+    counterpartyNotified: true,
+    audio: bundle.audio,
+  });
+  for (const item of bundle.tasks) {
+    const agreementId = uid("agr");
+    base.agreements.push({
+      id: agreementId,
+      callId,
+      type: item.type,
+      client: bundle.client,
+      company: bundle.company,
+      phrase: item.phrase,
+      title: item.title,
+      due: item.due,
+      time: item.time,
+      priority: item.priority,
+      amount: item.amount,
+      confirmed: true,
+      createdAt: now.toISOString(),
+      origin: "seed",
+      edited: false,
+    });
+    base.tasks.push({
+      id: uid("task"),
+      agreementId,
+      callId,
+      type: item.type,
+      title: item.title,
+      client: bundle.client,
+      company: bundle.company,
+      due: item.due,
+      time: item.time,
+      priority: item.priority,
+      amount: item.amount,
+      status: item.status,
+      origin: "seed",
+    });
+    base.events.push({
+      id: uid("evt"),
+      agreementId,
+      callId,
+      type: item.type,
+      title: item.title,
+      client: bundle.client,
+      company: bundle.company,
+      due: item.due,
+      time: item.time,
+      amount: item.amount,
+      origin: "seed",
+    });
+  }
+}
+
+export function ensureCatalog(vault: Vault, now = new Date()): { vault: Vault; changed: boolean } {
+  if (!vault.consentAt) return { vault, changed: false };
+  const present = new Set(vault.calls.map((call) => call.client));
+  const missing = extraBundles(now).filter((bundle) => !present.has(bundle.client));
+  if (missing.length === 0) return { vault, changed: false };
+  const next: Vault = {
+    ...vault,
+    calls: [...vault.calls],
+    agreements: [...vault.agreements],
+    tasks: [...vault.tasks],
+    events: [...vault.events],
+    audit: [...vault.audit],
+  };
+  for (const bundle of missing) pushBundle(next, bundle, now);
+  return {
+    vault: audit(next, "Клиенты добавлены", missing.map((bundle) => bundle.client).join(", "), now),
+    changed: true,
+  };
 }
 
 export function blankVault(): Vault {
@@ -547,18 +798,96 @@ export function setVoice(vault: Vault, voice: boolean): Vault {
   return { ...vault, voice };
 }
 
-export function setReminder(vault: Vault, eventId: string, mode: "day" | "hour" | "custom", custom: string): Vault {
+export function setReminder(vault: Vault, eventId: string, at: string): Vault {
   const event = vault.events.find((item) => item.id === eventId);
-  if (!event) return vault;
-  const label = mode === "day" ? "за день" : mode === "hour" ? "за час" : custom.trim();
+  if (!event || !/^\d{2}:\d{2}$/.test(at)) return vault;
   return audit(
     {
       ...vault,
-      reminders: { ...vault.reminders, [eventId]: { mode, custom: custom.trim() } },
+      reminders: { ...vault.reminders, [eventId]: { mode: "custom", custom: at, at } },
     },
     "Напоминание сохранено",
-    `${event.title}: ${label}`,
+    `${event.title}: ${at}`,
   );
+}
+
+export function addManualEvent(
+  vault: Vault,
+  input: { title: string; due: string; time: string; remindAt: string; priority: Priority },
+  now = new Date(),
+): Vault {
+  const title = input.title.trim();
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(input.due)) return vault;
+  if (!/^\d{2}:\d{2}$/.test(input.time) || !/^\d{2}:\d{2}$/.test(input.remindAt)) return vault;
+  const agreementId = uid("manual");
+  const event: CalEvent = {
+    id: uid("evt"),
+    agreementId,
+    callId: "manual",
+    type: "meeting",
+    title,
+    client: "Своё",
+    company: "Календарь",
+    due: input.due,
+    time: input.time,
+    amount: null,
+    origin: "manual",
+  };
+  const task: Task = {
+    id: uid("task"),
+    agreementId,
+    callId: "manual",
+    type: "meeting",
+    title,
+    client: "Своё",
+    company: "Календарь",
+    due: input.due,
+    time: input.time,
+    priority: input.priority,
+    amount: null,
+    status: "open",
+    origin: "manual",
+  };
+  return audit(
+    {
+      ...vault,
+      events: [...vault.events, event],
+      tasks: [...vault.tasks, task],
+      reminders: {
+        ...vault.reminders,
+        [event.id]: { mode: "custom", custom: input.remindAt, at: input.remindAt },
+      },
+    },
+    "Событие добавлено",
+    `${title} · ${input.due} ${input.time}, напоминание в ${input.remindAt}`,
+    now,
+  );
+}
+
+export function ensureOlegTranscript(vault: Vault): { vault: Vault; changed: boolean } {
+  const oleg = vault.calls.filter((call) => call.client.includes("Олег"));
+  if (oleg.length === 0 || oleg.some((call) => call.lines.length >= IN_SCRIPT.length)) {
+    return { vault, changed: false };
+  }
+  const target = [...oleg].sort((a, b) => b.lines.length - a.lines.length)[0];
+  const lines = IN_SCRIPT.map((line) => ({
+    id: uid("line"),
+    speaker: line.speaker,
+    name: line.name,
+    text: line.text,
+    fromScript: true,
+  }));
+  return {
+    changed: true,
+    vault: {
+      ...vault,
+      calls: vault.calls.map((call) =>
+        call.id === target.id
+          ? { ...call, direction: "in", lines, audio: call.audio || "/recordings/oleg.mp3" }
+          : call,
+      ),
+    },
+  };
 }
 
 export function noteAccess(vault: Vault, detail: string): Vault {

@@ -4,11 +4,17 @@ import { Bell, LockKeyhole, Search } from "lucide-react";
 import { PageTitle, PriorityPill, Screen, Surface, TypePill } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatLong, formatMoney, isPastDue } from "@/lib/dates";
+import { clockOf, formatWhen } from "@/lib/dates";
 import { knownPhone, recordingFor } from "@/lib/demo-script";
 import { useFix } from "@/lib/store";
 import type { Call, Task } from "@/lib/types";
 import { useMemo, useState } from "react";
+
+function priorityRank(priority: "high" | "medium" | "low"): number {
+  if (priority === "high") return 0;
+  if (priority === "medium") return 1;
+  return 2;
+}
 
 function digits(value: string): string {
   return value.replace(/\D/g, "");
@@ -43,10 +49,12 @@ function contactCards(calls: Call[], tasks: Task[]) {
   });
 }
 
+const TASKS_BEFORE_MORE = 3;
+
 export function HomeScreen() {
   const { vault, open, openTranscript } = useFix();
   const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const cards = useMemo(
     () => contactCards(vault?.calls ?? [], vault?.tasks ?? []),
     [vault?.calls, vault?.tasks],
@@ -58,8 +66,19 @@ export function HomeScreen() {
     day: "numeric",
     month: "long",
   });
-  const openTasks = vault.tasks.filter((task) => task.status === "open");
-  const upcoming = [...openTasks].sort((a, b) => a.due.localeCompare(b.due) || a.title.localeCompare(b.title));
+  const reminders = vault.events
+    .flatMap((event) => {
+      const at = clockOf(vault.reminders?.[event.id]);
+      if (!at) return [];
+      const task = vault.tasks.find((item) => item.agreementId === event.agreementId && item.title === event.title);
+      return [{ event, at, priority: task?.priority ?? "medium" }];
+    })
+    .sort(
+      (a, b) =>
+        a.event.due.localeCompare(b.event.due) ||
+        a.at.localeCompare(b.at) ||
+        priorityRank(a.priority) - priorityRank(b.priority),
+    );
   const needle = query.trim().toLowerCase().replaceAll("ё", "е");
   const needleDigits = digits(query);
   const found = cards.filter((card) => {
@@ -93,89 +112,84 @@ export function HomeScreen() {
         text="Карточки клиентов, записи разговоров и задачи, которые из них получились."
       />
 
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="font-heading text-lg font-semibold">Клиенты</h2>
-        <div className="flex min-w-0 items-center justify-end gap-2">
-          {searching ? (
-            <Input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Любое поле: имя, телефон, задача"
-              aria-label="Поиск по любому полю"
-              className="h-10 w-44 sm:w-64"
-            />
-          ) : null}
-          <button
-            type="button"
-            aria-label="Поиск"
-            aria-expanded={searching}
-            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-[#1d2023] ring-1 ring-[#1d2023]/10"
-            onClick={() => {
-              setSearching((value) => {
-                if (value) setQuery("");
-                return !value;
-              });
-            }}
-          >
-            <Search className="size-4" />
-          </button>
-        </div>
+      <h2 className="font-heading mb-3 text-lg font-semibold">Клиенты</h2>
+      <div className="relative mb-3">
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#626c77]" />
+        <Input
+          id="crm-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Поиск"
+          aria-label="Поиск по любому полю"
+          className="h-10 pl-9"
+        />
       </div>
 
-      <div className="max-h-[36rem] space-y-3 overflow-y-auto pr-1">
+      <div className="max-h-96 space-y-3 overflow-y-auto rounded-2xl bg-white p-3 ring-1 ring-[#1d2023]/8">
         {found.length === 0 ? (
-          <Surface>
-            <p className="text-sm text-[#626c77]">Никого не нашли. Лупа ищет по имени, телефону, компании, фразе и задаче.</p>
-          </Surface>
+          <p className="text-sm text-[#626c77]">Никого не нашли. Поиск смотрит имя, телефон, компанию, фразу и задачу.</p>
         ) : (
-          found.map((card) => (
-            <Surface key={card.client}>
-              <div className="flex items-start gap-3">
-                <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#ff0032] text-sm font-semibold text-white">
-                  {initials(card.client)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{card.client}</p>
-                  <p className="mt-0.5 truncate text-xs text-[#626c77]">
-                    {card.company}
-                    {card.role ? ` · ${card.role}` : ""}
-                  </p>
-                  {card.phone ? <p className="mt-0.5 text-xs text-[#626c77]">{card.phone}</p> : null}
+          found.map((card) => {
+            const openList = expanded[card.client] ? card.tasks : card.tasks.slice(0, TASKS_BEFORE_MORE);
+            const hidden = card.tasks.length - TASKS_BEFORE_MORE;
+            return (
+              <Surface key={card.client}>
+                <div className="flex items-start gap-3">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#ff0032] text-sm font-semibold text-white">
+                    {initials(card.client)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{card.client}</p>
+                    <p className="mt-0.5 truncate text-xs text-[#626c77]">
+                      {card.company}
+                      {card.role ? ` · ${card.role}` : ""}
+                    </p>
+                    {card.phone ? <p className="mt-0.5 text-xs text-[#626c77]">{card.phone}</p> : null}
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="h-9 shrink-0"
+                    onClick={() => openTranscript(card.callId)}
+                  >
+                    Просмотр
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  className="h-9 shrink-0"
-                  onClick={() => openTranscript(card.callId)}
-                >
-                  Просмотр
-                </Button>
-              </div>
-              {card.audio ? (
-                <audio controls preload="none" src={card.audio} className="mt-3 h-10 w-full">
-                  Запись {card.client}
-                </audio>
-              ) : (
-                <p className="mt-3 text-xs text-[#626c77]">Файла записи для этой карточки нет.</p>
-              )}
-              <p className="mt-3 text-xs font-medium text-[#626c77]">Задачи, которые надо выполнить</p>
-              {card.tasks.length === 0 ? (
-                <p className="mt-1 text-sm text-[#626c77]">Открытых задач нет.</p>
-              ) : (
-                <ul className="mt-2 space-y-1.5">
-                  {card.tasks.slice(0, 4).map((task) => (
-                    <li key={task.id} className="flex items-start gap-2 text-sm">
-                      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#ff0032]" />
-                      <span>{task.title}</span>
-                    </li>
-                  ))}
-                  {card.tasks.length > 4 ? (
-                    <li className="text-sm text-[#626c77]">ещё {card.tasks.length - 4}</li>
-                  ) : null}
-                </ul>
-              )}
-            </Surface>
-          ))
+                {card.audio ? (
+                  <audio controls preload="none" src={card.audio} className="mt-3 h-10 w-full">
+                    Запись {card.client}
+                  </audio>
+                ) : (
+                  <p className="mt-3 text-xs text-[#626c77]">Файла записи для этой карточки нет.</p>
+                )}
+                <p className="mt-3 text-xs font-medium text-[#626c77]">Задачи, которые надо выполнить</p>
+                {card.tasks.length === 0 ? (
+                  <p className="mt-1 text-sm text-[#626c77]">Открытых задач нет.</p>
+                ) : (
+                  <div className={expanded[card.client] ? "mt-2 max-h-40 overflow-y-auto pr-1" : "mt-2"}>
+                    <ul className="space-y-1.5">
+                      {openList.map((task) => (
+                        <li key={task.id} className="flex items-start gap-2 text-sm">
+                          <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#ff0032]" />
+                          <span>{task.title}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {hidden > 0 ? (
+                      <button
+                        type="button"
+                        className="mt-2 text-sm font-medium text-[#ff0032]"
+                        onClick={() =>
+                          setExpanded((current) => ({ ...current, [card.client]: !current[card.client] }))
+                        }
+                      >
+                        {expanded[card.client] ? "Свернуть" : `Ещё ${hidden}`}
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </Surface>
+            );
+          })
         )}
       </div>
 
@@ -188,14 +202,23 @@ export function HomeScreen() {
           Все задачи
         </button>
       </div>
-      {upcoming.length === 0 ? (
+      {reminders.length === 0 ? (
         <Surface>
-          <p className="text-sm text-[#626c77]">Открытых задач нет.</p>
+          <p className="text-sm text-[#626c77]">Напоминаний пока нет. В календаре поставьте время уведомления.</p>
         </Surface>
       ) : (
         <div className="space-y-2">
-          {upcoming.map((task) => (
-            <TaskRow key={task.id} task={task} />
+          {reminders.map((item) => (
+            <Surface key={item.event.id}>
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                <TypePill type={item.event.type} />
+                <PriorityPill priority={item.priority} />
+              </div>
+              <p className="text-sm font-medium">{item.event.title}</p>
+              <p className="mt-1 text-xs text-[#626c77]">
+                {item.event.company} · {formatWhen(item.event.due, item.event.time)} · уведомление в {item.at}
+              </p>
+            </Surface>
           ))}
         </div>
       )}
@@ -208,27 +231,3 @@ export function HomeScreen() {
   );
 }
 
-function TaskRow({ task }: { task: Task }) {
-  const money = formatMoney(task.amount);
-  return (
-    <Surface className="flex items-start justify-between gap-3">
-      <div>
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          <TypePill type={task.type} />
-          <PriorityPill priority={task.priority} />
-          {isPastDue(task.due) ? (
-            <span className="inline-flex h-6 items-center rounded-full bg-[#ff0032]/10 px-2 text-[11px] font-medium text-[#d1002b]">
-              Просрочено
-            </span>
-          ) : null}
-        </div>
-        <p className="text-sm font-medium">{task.title}</p>
-        <p className="mt-1 text-xs text-[#626c77]">
-          {task.company} · {formatLong(task.due)}
-          {task.time ? `, ${task.time}` : ""}
-          {money ? ` · ${money}` : ""}
-        </p>
-      </div>
-    </Surface>
-  );
-}

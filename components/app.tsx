@@ -8,7 +8,8 @@ import {
   ScrollText,
   Settings,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { clockNow, clockOf, todayIso } from "@/lib/dates";
 import { Logo } from "@/components/bits";
 import { ConsentScreen } from "@/components/screens/consent";
 import { CalendarScreen } from "@/components/screens/calendar";
@@ -44,6 +45,31 @@ export function App() {
 function Frame() {
   const store = useFix();
   const [more, setMore] = useState(false);
+
+  useEffect(() => {
+    const vault = store.vault;
+    if (!vault) return;
+    const announce = () => {
+      const now = new Date();
+      const today = todayIso(now);
+      const hhmm = clockNow(now);
+      for (const event of vault.events) {
+        const at = clockOf(vault.reminders?.[event.id]);
+        if (!at || event.due !== today || at > hhmm) continue;
+        const key = `fix-reminder:${event.id}:${event.due}:${at}`;
+        if (window.sessionStorage.getItem(key)) continue;
+        window.sessionStorage.setItem(key, "1");
+        const text = `Напоминание: ${event.title}, ${at}`;
+        store.flash(text);
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("Фикс", { body: text });
+        }
+      }
+    };
+    announce();
+    const timer = window.setInterval(announce, 15000);
+    return () => window.clearInterval(timer);
+  }, [store]);
 
   if (store.status === "loading") {
     return (
@@ -113,7 +139,14 @@ function Frame() {
             <p className="text-xs text-[#626c77]">Алексей</p>
           </div>
           {store.notice ? (
-            <p className="bg-[#1d2023] px-4 py-2 text-center text-sm text-white">{store.notice}</p>
+            <div className="pointer-events-none fixed top-5 left-1/2 z-[70] w-[min(24rem,calc(100%-2rem))] -translate-x-1/2">
+              <p
+                role="status"
+                className="animate-in fade-in slide-in-from-top-2 rounded-2xl bg-[#1d2023] px-4 py-3 text-center text-sm text-white shadow-[0_12px_40px_rgba(29,32,35,0.28)] duration-200"
+              >
+                {store.notice}
+              </p>
+            </div>
           ) : null}
           <div
             className={cn(
